@@ -2,6 +2,7 @@
 
 ## Architecture Overview
 Distiller is a self-hosted web application that monitors RSS feeds and YouTube channels, filters them by keywords, and automatically generates summaries and audio podcasts using Google's NotebookLM.
+Sources are configurable as plugins and can be disabled
 
 It uses a 3-tier architecture deployed via Docker Compose:
 1. **Next.js Frontend/Worker (`/app`)**: Manages the UI, PostgreSQL database (via Drizzle ORM), and background jobs (via pg-boss) for fetching RSS feeds.
