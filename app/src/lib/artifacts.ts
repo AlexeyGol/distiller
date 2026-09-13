@@ -20,7 +20,9 @@ import { artifacts } from "../db/schema.js";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function dataDir(env: { DATA_DIR?: string } = process.env): string {
+export function dataDir(
+  env: Record<string, string | undefined> = process.env,
+): string {
   return env.DATA_DIR?.trim() || "/data";
 }
 

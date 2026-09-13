@@ -12,8 +12,13 @@ import {
   topicSources,
   topics,
 } from "../db/schema.js";
+import { z } from "zod";
 import { registry } from "../plugins.js";
+import { PluginRegistry } from "../core/registry.js";
+import type { SourcePlugin } from "../core/types.js";
 import { approveDigest, setItemIncluded } from "../pipeline/digest.js";
+import { pluginCatalog } from "./catalog.js";
+import { valuesFromFormData } from "./schema-form.js";
 import {
   addKeyword,
   attachSink,
@@ -374,6 +379,90 @@ describe("curation gate", () => {
 
     const [row] = await db.select().from(digests).where(eq(digests.id, digestId));
     expect(row!.status).toBe("draft");
+  });
+});
+
+describe("a plugin the UI has never heard of", () => {
+  // The acceptance criterion, exercised rather than asserted: a source plugin
+  // invented here, with field names and types no page mentions, must be fully
+  // configurable through the same catalog -> form -> validate path.
+  const inventedSchema = z.object({
+    endpoint: z.string().url(),
+    mode: z.enum(["fast", "thorough"]),
+    depth: z.number().int().min(1),
+    verbose: z.boolean().optional(),
+    nickname: z.string().optional(),
+  });
+
+  const invented: SourcePlugin<z.infer<typeof inventedSchema>> = {
+    kind: "source",
+    id: "invented",
+    label: "Invented source",
+    description: "Exists only in this test.",
+    configSchema: inventedSchema,
+    capabilities: { pollable: true, supportsCursor: false },
+    async fetch() {
+      return { items: [], cursor: null };
+    },
+  };
+
+  function registryWith(): PluginRegistry {
+    const custom = new PluginRegistry();
+    custom.registerSource(invented);
+    return custom;
+  }
+
+  it("appears in the catalog with a complete, correctly typed field list", async () => {
+    const catalog = await pluginCatalog(db, "source", { reg: registryWith() });
+
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0]!.id).toBe("invented");
+    expect(
+      catalog[0]!.fields.map((f) => [f.name, f.type, f.required]),
+    ).toEqual([
+      ["endpoint", "url", true],
+      ["mode", "enum", true],
+      ["depth", "number", true],
+      ["verbose", "boolean", false],
+      ["nickname", "string", false],
+    ]);
+  });
+
+  it("accepts a submission built from those fields alone", async () => {
+    const custom = registryWith();
+    const fields = (await pluginCatalog(db, "source", { reg: custom }))[0]!
+      .fields;
+
+    const submitted = new Map<string, string>([
+      ["config.endpoint", "https://example.com/api"],
+      ["config.mode", "thorough"],
+      ["config.depth", "3"],
+      ["config.nickname", ""],
+    ]);
+    const config = valuesFromFormData(
+      fields,
+      { get: (name) => submitted.get(name) ?? null },
+      "config.",
+    );
+
+    const source = await createSource(
+      db,
+      { pluginId: "invented", label: "Invented", config },
+      custom,
+    );
+
+    expect(source.config).toEqual({
+      endpoint: "https://example.com/api",
+      mode: "thorough",
+      depth: 3,
+      verbose: false,
+    });
+  });
+
+  it("is hidden from the catalog once its type is disabled", async () => {
+    await setPluginEnabled(db, "invented", "source", false);
+    const catalog = await pluginCatalog(db, "source", { reg: registryWith() });
+    expect(catalog).toHaveLength(0);
   });
 });
 

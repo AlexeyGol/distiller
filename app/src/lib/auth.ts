@@ -34,7 +34,7 @@ export function isPublicPath(pathname: string): boolean {
  * it cannot quietly become the production configuration.
  */
 export function appPassword(
-  env: { APP_PASSWORD?: string } = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): string | undefined {
   const value = env.APP_PASSWORD?.trim();
   return value ? value : undefined;
