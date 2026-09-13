@@ -107,7 +107,18 @@ export interface Artifact {
 
 /** What a renderer receives: the topic it is rendering for, plus the items. */
 export interface RenderInput {
-  topic: { id: string; name: string; description?: string };
+  topic: {
+    id: string;
+    name: string;
+    /**
+     * Unique, URL- and filesystem-safe. Renderers name artifacts from this, so
+     * a generated file never carries a raw UUID or a character that is illegal
+     * on Windows. Optional only so test doubles stay terse - the pipeline
+     * always supplies it.
+     */
+    slug?: string;
+    description?: string;
+  };
   items: NormalizedItem[];
   /**
    * Idempotency key. A retry with the same jobKey must not produce a second

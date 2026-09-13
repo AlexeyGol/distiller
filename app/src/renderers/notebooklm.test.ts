@@ -6,6 +6,7 @@ import {
   NOTEBOOKLM_DAILY_BUDGET,
   createNotebookLmRenderer,
   notebookLmConfigSchema,
+  audioFileName,
   notebookTitle,
   type NotebookLmConfig,
   type NotebookLmDeps,
@@ -136,7 +137,7 @@ describe("notebooklm happy path", () => {
       {
         kind: "audio",
         mime: "audio/mpeg",
-        path: "job-123.mp3",
+        path: "ai-safety-job-123.mp3",
         bytes: AUDIO_BYTES.byteLength,
       },
     ]);
@@ -154,7 +155,7 @@ describe("notebooklm happy path", () => {
     await createNotebookLmRenderer(h.deps).render(config, input);
 
     expect(h.writes).toEqual([
-      { path: "/data/job-123.mp3", bytes: AUDIO_BYTES.byteLength },
+      { path: "/data/ai-safety-job-123.mp3", bytes: AUDIO_BYTES.byteLength },
     ]);
   });
 
@@ -380,5 +381,73 @@ describe("notebookTitle", () => {
     expect(notebookTitle(withKey("t:1234567890123"))).toBe(
       "AI News [t:1234567890123]",
     );
+  });
+});
+
+describe("audioFileName", () => {
+  const realJobKey = "f8f9161c-5c5b-4a67-abbf-5a464f1bc5fa:202609130049";
+
+  function withTopic(
+    topic: RenderInput["topic"],
+    jobKey = realJobKey,
+  ): RenderInput {
+    return { topic, items: [], jobKey };
+  }
+
+  it("names the file from the topic slug and a readable date", () => {
+    expect(
+      audioFileName(withTopic({ id: "t", name: "AI News", slug: "ai-news" })),
+    ).toBe("ai-news-2026-09-13-0049.mp3");
+  });
+
+  it("never emits a colon, which is illegal on Windows", () => {
+    // Telegram shows the basename in chat and the file gets saved by real
+    // people on real machines, so this is a portability bug, not a nitpick.
+    const name = audioFileName(
+      withTopic({ id: "t", name: "AI News", slug: "ai-news" }),
+    );
+    expect(name).not.toContain(":");
+    expect(name).not.toMatch(/[<>:"/\\|?*]/);
+  });
+
+  it("carries no uuid into the filename", () => {
+    const name = audioFileName(
+      withTopic({ id: "t", name: "AI News", slug: "ai-news" }),
+    );
+    expect(name).not.toContain("f8f9161c");
+  });
+
+  it("falls back to the topic name when no slug is supplied", () => {
+    expect(audioFileName(withTopic({ id: "t", name: "AI News" }))).toBe(
+      "ai-news-2026-09-13-0049.mp3",
+    );
+  });
+
+  it("sanitises a hostile slug rather than trusting it as a path", () => {
+    // The slug is user-entered, so it cannot be pasted into a path unchecked.
+    const name = audioFileName(
+      withTopic({ id: "t", name: "x", slug: "../../etc/passwd" }),
+    );
+    expect(name).not.toContain("..");
+    expect(name).not.toContain("/");
+    expect(name).toBe("etc-passwd-2026-09-13-0049.mp3");
+  });
+
+  it("handles a slug of only punctuation without producing an empty name", () => {
+    expect(audioFileName(withTopic({ id: "t", name: "!!!", slug: "???" }))).toBe(
+      "topic-2026-09-13-0049.mp3",
+    );
+  });
+
+  it("stays unique across minutes for one topic", () => {
+    const a = audioFileName(withTopic({ id: "t", name: "N", slug: "n" }, "x:202609130049"));
+    const b = audioFileName(withTopic({ id: "t", name: "N", slug: "n" }, "x:202609130050"));
+    expect(a).not.toBe(b);
+  });
+
+  it("keeps a unique name when the jobKey shape is unrecognised", () => {
+    expect(
+      audioFileName(withTopic({ id: "t", name: "N", slug: "n" }, "job-123")),
+    ).toBe("n-job-123.mp3");
   });
 });

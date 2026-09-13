@@ -242,6 +242,7 @@ export async function renderDigest(
       topic: {
         id: topic.id,
         name: topic.name,
+        slug: topic.slug,
         description: topic.description ?? undefined,
       },
       items: selected,

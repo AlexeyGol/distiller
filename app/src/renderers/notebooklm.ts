@@ -240,6 +240,51 @@ export function notebookTitle(input: RenderInput): string {
   return `${input.topic.name} - ${when}`;
 }
 
+/**
+ * Reduce a topic name to something safe to put in a path. Applied even to the
+ * stored slug, which is user-entered and therefore not trustworthy as a path
+ * segment.
+ */
+function slugify(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "topic"
+  );
+}
+
+/**
+ * Name the mp3 for a human, not for the database:
+ *
+ *     ai-news-2026-09-13-0049.mp3
+ *
+ * This name is more visible than it looks. Telegram shows a file's basename as
+ * its display name in the chat, and the artifact is downloadable from the UI,
+ * so it ends up in real file managers. The previous form was
+ * "<jobKey>.mp3", which embedded a UUID and - worse - a colon, which is an
+ * illegal filename character on Windows and would break the moment anyone saved
+ * the file there.
+ *
+ * Uniqueness is preserved: topic slugs are unique in the database and the stamp
+ * is per-minute, which is exactly the granularity jobKey guarantees.
+ */
+export function audioFileName(input: RenderInput): string {
+  const base = slugify(input.topic.slug ?? input.topic.name);
+  const stamp = JOB_KEY_STAMP.exec(input.jobKey)?.[1];
+
+  if (!stamp) {
+    // Unrecognised key shape: fall back to a sanitised key so the name stays
+    // unique, rather than risking two digests overwriting each other's audio.
+    return `${base}-${slugify(input.jobKey)}.mp3`;
+  }
+
+  const date = `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}`;
+  return `${base}-${date}-${stamp.slice(8, 12)}.mp3`;
+}
+
 export function createNotebookLmRenderer(
   deps: NotebookLmDeps = defaultNotebookLmDeps,
 ): RendererPlugin<NotebookLmConfig> {
@@ -326,7 +371,7 @@ export function createNotebookLmRenderer(
 
       const audio = await pollForAudio(deps, resolved, id);
 
-      const relativePath = `${input.jobKey}.mp3`;
+      const relativePath = audioFileName(input);
       await deps.writeFile(`${deps.dataDir()}/${relativePath}`, audio);
 
       const artifacts: Artifact[] = [
