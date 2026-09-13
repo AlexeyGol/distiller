@@ -13,6 +13,7 @@ import {
 import { registry } from "../plugins.js";
 import type { PluginRegistry } from "../core/registry.js";
 import { isSecretField } from "./config-display.js";
+import { isEnvRef } from "./env-ref.js";
 
 /**
  * Export and import the whole configuration: topics, sources, sinks, keywords,
@@ -86,6 +87,15 @@ export function redactConfig(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
+    // An environment reference is the NAME of a credential, not the credential.
+    // Keeping it is the whole point: a config built on references exports in
+    // full, imports on another machine unchanged, and still carries nothing
+    // worth stealing.
+    if (isEnvRef(value)) {
+      out[key] = value;
+      continue;
+    }
+
     // An empty value carries no secret, and preserving it tells the reader the
     // field exists but was never filled in.
     out[key] =

@@ -3,6 +3,7 @@ import type { Database } from "../db/client.js";
 import { items, sources, type Source } from "../db/schema.js";
 import type { PluginRegistry } from "../core/registry.js";
 import type { Cursor, NormalizedItem } from "../core/types.js";
+import { resolveEnvRefs } from "../lib/env-ref.js";
 
 export interface IngestResult {
   sourceId: string;
@@ -52,7 +53,7 @@ export async function ingestSource(
 
   let config: unknown;
   try {
-    config = plugin.configSchema.parse(source.config);
+    config = plugin.configSchema.parse(resolveEnvRefs(source.config));
   } catch (cause) {
     const error = `Invalid config: ${describeError(cause)}`;
     await markFailure(deps.db, source.id, error, now());

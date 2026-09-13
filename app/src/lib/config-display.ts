@@ -11,6 +11,8 @@
  * that looks credential-shaped.
  */
 
+import { isEnvRef } from "./env-ref.js";
+
 /** Word stems whose presence in a field name means "do not print this". */
 const SECRET_WORDS = new Set([
   "key",
@@ -88,8 +90,16 @@ export function configEntries(config: unknown): ConfigEntry[] {
 
   return Object.entries(config as Record<string, unknown>).map(
     ([key, raw]) => {
-      const secret = isSecretField(key);
       const shown = displayValue(raw);
+
+      // An environment reference is not a credential, it is the NAME of one.
+      // Masking it would hide the single most useful thing on the page: which
+      // variable this source actually needs.
+      if (isEnvRef(raw)) {
+        return { key, value: shown, secret: false };
+      }
+
+      const secret = isSecretField(key);
       return {
         key,
         value: secret && shown !== "not set" ? maskSecret(String(raw)) : shown,

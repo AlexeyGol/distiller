@@ -16,6 +16,7 @@ import {
 } from "../db/schema.js";
 import type { PluginRegistry } from "../core/registry.js";
 import { explainMatch } from "../core/filter.js";
+import { resolveEnvRefs } from "../lib/env-ref.js";
 import {
   QuotaExhaustedError,
   type KeywordRule,
@@ -237,7 +238,9 @@ export async function renderDigest(
     .where(eq(digests.id, digestId));
 
   try {
-    const config = renderer.configSchema.parse(topic.rendererConfig ?? {});
+    const config = renderer.configSchema.parse(
+      resolveEnvRefs(topic.rendererConfig ?? {}),
+    );
     const output = await renderer.render(config, {
       topic: {
         id: topic.id,
@@ -341,7 +344,7 @@ export async function deliverDigest(
     }
 
     try {
-      const config = plugin.configSchema.parse(sink.config);
+      const config = plugin.configSchema.parse(resolveEnvRefs(sink.config));
       const accepted = stored.filter((a) =>
         plugin.accepts.includes(a.kind as "text" | "audio"),
       );

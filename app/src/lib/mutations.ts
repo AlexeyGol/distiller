@@ -16,6 +16,7 @@ import {
 } from "../db/schema.js";
 import type { PluginRegistry } from "../core/registry.js";
 import { registry } from "../plugins.js";
+import { resolveEnvRefs } from "./env-ref.js";
 import { formatZodError } from "./schema-form.js";
 import { z } from "zod";
 
@@ -319,7 +320,7 @@ export async function testSourceConfig(
   const plugin = reg.getSource(pluginId);
   if (!plugin) return { ok: false, message: `Unknown plugin: "${pluginId}"` };
 
-  const parsed = plugin.configSchema.safeParse(config);
+  const parsed = plugin.configSchema.safeParse(resolveEnvRefs(config));
   if (!parsed.success) {
     return { ok: false, message: formatZodError(parsed.error) };
   }
@@ -413,7 +414,7 @@ export async function testSinkConfig(
   const plugin = reg.getSink(pluginId);
   if (!plugin) return { ok: false, message: `Unknown plugin: "${pluginId}"` };
 
-  const parsed = plugin.configSchema.safeParse(config);
+  const parsed = plugin.configSchema.safeParse(resolveEnvRefs(config));
   if (!parsed.success) {
     return { ok: false, message: formatZodError(parsed.error) };
   }

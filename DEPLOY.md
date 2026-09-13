@@ -116,11 +116,34 @@ Fill in only the keys for the plugins you actually configure:
 `GOOGLE_GENERATIVE_AI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`,
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 
-**Per-instance secrets live in the database, not in `.env`.** A Telegram bot
-token belongs to a specific sink and a YouTube key to a specific source, so they
-are entered in the UI and stored as JSONB. The UI masks them on display (field
-names matching key/token/secret/password render as `AIza...XY`). `.env` is only
-for process-level configuration.
+**Per-instance secrets: literal, or a reference to the environment.**
+
+A Telegram bot token belongs to a specific sink and a YouTube key to a specific
+source, so a single environment variable per plugin type cannot express them -
+two sinks may need two different tokens. Config therefore lives with the
+instance, in the database, and you choose how the secret gets there:
+
+| In the config field | Stored | Best for |
+| --- | --- | --- |
+| `AIzaSyD-realkey...` | the key itself | fastest setup, no restart |
+| `${YOUTUBE_API_KEY}` | only the reference | **everything else** |
+
+Prefer the reference. It keeps the database, its dumps, its config exports and
+any screenshot of the sources table free of anything worth stealing, and it puts
+the value where a Kubernetes Secret, a systemd credential or a Vault agent
+already expects to put it. Per-instance flexibility is unaffected: two sinks can
+reference `${TELEGRAM_BOT_TOKEN_A}` and `${TELEGRAM_BOT_TOKEN_B}`.
+
+`${VAR:-fallback}` is supported. An unset variable with no fallback fails
+loudly, naming both the variable and the field, rather than quietly polling with
+an empty key and producing a 403 far from its cause.
+
+A reference is not a secret, so it is neither masked in the UI nor redacted on
+export - which means a config built on references exports in full and imports
+onto another machine unchanged, with no `--with-secrets` variant needed at all.
+
+Literal values are still masked on display (`AIza...XY`) and redacted on export.
+`.env` remains the place for process-level configuration.
 
 ### File secrets: the NotebookLM credential
 
