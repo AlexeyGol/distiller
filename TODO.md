@@ -158,6 +158,80 @@ costs a few dollars a month, so this is not worth engineering around.
 
 ---
 
+## Researched: local LLM summarization on the home server
+
+**Hardware:** Dell Latitude 5320, 16 GB soldered DDR4-3200, Tiger Lake, 4 cores,
+**no discrete GPU option exists** for this model. Iris Xe iGPU shares the same
+51 GB/s DRAM as the CPU.
+
+**Verdict: viable, but there is no problem it solves.** Not the primary path.
+Worth building only as an optional fallback provider, or for its own sake.
+
+**Why it is viable.** One 30k-token digest takes an estimated **12-20 min
+CPU-only**, or **5-10 min with Vulkan iGPU offload**. Nobody is waiting
+overnight, so latency genuinely is not the constraint. The usual "local LLM is
+too slow" advice assumes interactive chat and does not apply here.
+
+**Why it is not worth it.** The workload uses **0.13% of Gemini's free-tier
+daily quota** (2 requests against 1,500/day). The paid fallback is about
+**$2.15/month**. The input is public RSS content, so privacy buys nothing, and
+"offline capability" is void for an app whose entire input arrives over the
+network. That leaves no failure mode of the hosted path that local inference
+fixes, against a measurable quality regression.
+
+### Two findings worth keeping regardless
+
+**1. KV cache architecture beats parameter count.** At 32k context:
+
+| Model | KV cache (FP16) | Q4 weights | Total |
+| --- | --- | --- | --- |
+| Gemma 4 E4B | **0.28 GB** | 4.22 GB | ~5.2 GB |
+| Qwen3.5-4B | ~1.0 GB | ~2.5 GB | ~4.2 GB |
+| Qwen3-4B (dense) | **4.50 GB** | ~2.5 GB | ~7.7 GB |
+| Qwen3-8B | 4.50 GB | ~5.0 GB | ~10.2 GB |
+
+A conventional dense 4B model spends nearly **twice its own weight** on KV
+cache at this context. Gemma 4 E4B costs 16x less because five of every six
+attention layers use a 512-token sliding window with shared KV. Picking by
+parameter count would have chosen wrong.
+
+**2. Prefill dominates, so most benchmarks mislead.** With 30k tokens in and
+~1k out, prefill is **86% of wall clock**. Quotes of "8 tokens/sec" describe
+the 14% that does not matter. Sizing this job off generation speed predicts 2
+minutes and delivers 15. The iGPU helps only because it accelerates prefill; it
+makes generation slightly *worse*, being bandwidth-bound on the same DRAM.
+
+### Quality: fine short, weak long - which is exactly this task
+
+Small models are genuinely good at grounded short summarisation. On Vectara's
+hallucination leaderboard (May 2026), Qwen3-4B scores **5.7%** against Gemini
+2.5 Flash's 7.8%.
+
+Long-context multi-item synthesis is the weak spot. Llama-3.1-8B drops from
+95.0% on RULER at 4k to **87.3% at 32k**. Gemma 4 E4B scores **25.4%** on
+8-needle MRCR - and a 31-item digest is literally a multi-needle retrieval
+problem. Expected failure modes: **silently dropped items** (the damaging one -
+invisible without counting), merged stories with crossed attribution,
+hallucinated URLs, and style drift over long output.
+
+**If built, use map-reduce:** summarise each item at ~1.2k context, then combine
+31 short summaries in a ~4k reduce pass. That converts one task small models are
+bad at into 32 they are good at, drops the KV cache to ~30 MB, and costs about 9
+extra minutes. Never let the model emit a URL; template those from our own data.
+
+### Setup, if ever built
+`gemma-4-E4B-it` QAT `UD-Q4_K_XL`, run under **llama.cpp directly, not Ollama** -
+Ollama defaults `num_ctx` to 4096 and would **silently truncate** a 30k prompt,
+yielding a plausible digest built from a third of the items with no error.
+Flags: `-c 32768 -t 4 -b 512 -ub 512 --cache-type-k q8_0 --cache-type-v q8_0
+--mlock`. Use `-t 4` not 8: SMT siblings contend for the same AVX-512 ports.
+
+Unverified: the exact CPU SKU, whether memory is DDR4-3200 or LPDDR4x-4267 (a
+33% bandwidth difference), and whether Intel's Vulkan driver will accept a
+4.22 GB allocation. All checkable in minutes on the machine itself.
+
+---
+
 ## Open question: keep the `reddit` plugin?
 
 A subreddit `.rss` URL works in the generic `rss` plugin, so the dedicated
