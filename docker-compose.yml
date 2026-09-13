@@ -37,6 +37,26 @@ services:
       retries: 5
       start_period: 10s
 
+  # Runs migrations once and exits. app and worker wait for it to SUCCEED, so a
+  # fresh host comes up with a schema without anyone running a command by hand.
+  #
+  # Without this the stack starts happily against an empty database and fails at
+  # the first query - the failure surfaces far from its cause, in the app rather
+  # than in deployment.
+  #
+  # Drizzle records applied migrations in its own table, so re-running on every
+  # boot is a no-op and safe.
+  migrate:
+    build:
+      context: ./app
+    restart: "no"
+    command: ["node_modules/.bin/tsx", "src/db/migrate.ts"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
+
   app:
     build:
       context: ./app
@@ -44,6 +64,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
       DATA_DIR: /data
@@ -62,6 +84,32 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The image's default HEALTHCHECK probes http://localhost:3000, which the
+    # worker never serves - it would sit unhealthy forever and, under a restart
+    # policy, be killed in a loop despite running correctly.
+    #
+    # A worker is healthy when it can reach the database, since that is both its
+    # queue and its data. Checking the process is alive would be redundant:
+    # Docker already restarts it if it exits.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const { Client } = require("pg");
+          const c = new Client({ connectionString: process.env.DATABASE_URL });
+          c.connect()
+            .then(() => c.query("select 1"))
+            .then(() => c.end())
+            .then(() => process.exit(0))
+            .catch(() => process.exit(1));
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
       DATA_DIR: /data

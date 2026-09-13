@@ -103,7 +103,8 @@ error. See [AGENTS.md](./AGENTS.md) for the full detail and the exact symptoms.
 AI coding agents should read [AGENTS.md](./AGENTS.md) before running anything.
 
 Known gaps, planned work and decisions already settled are in
-[TODO.md](./TODO.md).
+[TODO.md](./TODO.md). Deploying to a home server is covered in
+[DEPLOY.md](./DEPLOY.md).
 
 ## Design decisions worth knowing
 
