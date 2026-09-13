@@ -6,41 +6,74 @@ deploy, automatic migrations, health checks - was exercised end to end.
 
 ---
 
-## 1. LXC container or VM?
+## 1. VM or LXC?
 
-Both work. The trade is isolation against RAM.
+**Use a VM.** That is Proxmox's own recommendation for Docker, and this guide
+follows it.
 
-| | LXC (recommended on a 16 GB box) | VM |
+An earlier draft of this document recommended an LXC to save roughly 600 MB of
+guest kernel on a 16 GB box. That is common community practice and it does work,
+but it is explicitly **not** what Proxmox recommends, and "saves 4% of RAM" is a
+poor trade against "vendor-supported and behaves the way every troubleshooting
+guide assumes".
+
+### The three options, honestly
+
+| Option | Status | Verdict here |
 | --- | --- | --- |
-| RAM overhead | ~100 MB | ~700 MB for the guest kernel |
-| Docker support | Works, needs two flags | Officially supported, no caveats |
-| Disk | Shares the host page cache | Fixed allocation |
-| Surprises | Occasional storage-driver quirks | Essentially none |
+| **Docker in a VM** | Proxmox's documented recommendation | **Use this** |
+| Docker in an unprivileged LXC | Widely done, community-supported, **not** recommended by Proxmox | Works; you own the edge cases |
+| Native OCI containers (PVE 9.1+) | **Technology preview** for application containers | Not a fit, see below |
 
-On a Latitude 5320 with **16 GB soldered and no way to add more**, the ~600 MB a
-VM costs is worth avoiding. Use an **unprivileged LXC with nesting**. If you hit
-storage-driver oddities and do not want to debug them, switch to a VM; nothing
-else in this guide changes.
+**Why not native OCI**, even though it is the shiny 2026 answer. Proxmox VE 9.1
+(November 2025) can create LXC containers directly from OCI images, which sounds
+like exactly what we want. It is not, for two reasons. It is still a technology
+preview for application containers, and more fundamentally it runs *images*, not
+*compose stacks*. This deployment depends on things only an orchestrator
+provides: `depends_on` with `service_completed_successfully` gating the migration
+step, health-gated start ordering, a shared network, and named volumes. Running
+five OCI containers by hand would mean reimplementing that ordering yourself,
+and the migration gate is precisely the thing that makes a fresh deploy work
+unattended. Revisit when the preview label comes off and compose semantics have
+an answer.
 
-### Creating the LXC
+**Why LXC is still defensible.** Plenty of people run Docker in unprivileged LXC
+for years without incident, and the community helper scripts
+([community-scripts/ProxmoxVE](https://github.com/community-scripts/ProxmoxVE),
+the maintained successor to tteck's collection) ship a Docker LXC script. If you
+already run that way and it works, there is no reason to migrate. Just know that
+it is community practice rather than vendor guidance, so when something odd
+happens with overlayfs or AppArmor you are on your own, and that `vzdump` of a
+running Docker-in-LXC is crash-consistent rather than clean.
 
-Debian 12 template, then in the container's options enable:
+### Creating the VM
 
-- **Nesting** (`features: nesting=1`) - required, Docker will not start without it
-- **keyctl** (`features: keyctl=1`) - required for Docker's own key storage
+Debian 13 (Trixie) minimal, then:
 
-Via the host shell:
+- **2 vCPU, 4 GB RAM, 20 GB disk** for the system
+- Enable the **QEMU guest agent** in VM Options, and `apt install qemu-guest-agent`
+  inside. Without it Proxmox cannot quiesce or shut the VM down cleanly, and
+  backups get rougher than they need to be.
+- A **second disk** for `data/` (rendered mp3s), sized for your retention window.
+  A 30-minute episode at 96 kbps is roughly 21 MB, so one topic daily at 30-day
+  retention is under 1 GB. Separate so you can resize or snapshot it
+  independently of the system disk.
+
+Install Docker normally (`get.docker.com`), then continue at section 2.
+
+RAM note: 4 GB is comfortable for the running stack. If you also build images on
+this VM (section 5), give it 6 GB - the Next.js build wants about 2 GB on its
+own.
+
+### If you use an LXC anyway
+
+Unprivileged, Debian 13 template, and set both features or Docker will not start:
 
 ```bash
 pct set <CTID> -features nesting=1,keyctl=1
 ```
 
-Sizing: **2 cores, 4 GB RAM, 20 GB disk** is comfortable. The database is small;
-what grows is `data/` (rendered mp3s). Put that on a separate mount point sized
-for your retention window - a 30-minute episode at 96 kbps is roughly 21 MB, so
-one topic daily at 30-day retention is under 1 GB.
-
-Install Docker inside the container as normal (`get.docker.com`).
+Same sizing. Everything from section 2 onward is identical.
 
 ---
 
@@ -143,7 +176,7 @@ docker compose run --rm migrate node_modules/.bin/tsx src/db/seed.ts
 ### Reaching it
 
 The app binds `:3000` inside the container. Expose it however you already do
-things: a Proxmox firewall rule plus the LXC's IP for a LAN-only setup, or a
+things: a Proxmox firewall rule plus the guest's IP for a LAN-only setup, or a
 reverse proxy (Caddy/nginx/Traefik) if you want TLS. **Do not put this on the
 public internet** behind only `APP_PASSWORD` - it is a single shared password
 with no rate limiting.
@@ -228,9 +261,11 @@ gunzip -c db-2026-09-13.sql.gz | docker compose exec -T db psql -U distiller dis
 `data/` can be discarded if you are willing to lose old audio; digests keep their
 text summaries regardless, since those live in the database.
 
-Proxmox's own LXC snapshots cover the whole container and are a reasonable
-belt-and-braces layer, but a snapshot of a running Postgres is a crash-consistent
-copy, not a clean dump. Keep the `pg_dump`.
+Proxmox's own VM backups cover the whole guest and are a reasonable
+belt-and-braces layer. Keep the `pg_dump` anyway: with the QEMU guest agent
+installed, `vzdump` can quiesce the filesystem, but it still captures Postgres
+mid-transaction rather than taking a clean logical dump. The two answer different
+questions - the snapshot restores a machine, the dump restores a database.
 
 ---
 
@@ -272,9 +307,13 @@ alongside whatever else the box does:
 
 ## 8. What is not verified
 
-- **No Proxmox host was available**, so the LXC creation, the nesting flags and
-  the resource sizing come from documentation and general practice rather than
-  from a run. Everything from `docker compose up` onward was verified.
+- **No Proxmox host was available**, so VM creation, guest-agent setup, the LXC
+  feature flags and the resource sizing come from documentation rather than from
+  a run. Everything from `docker compose up` onward was verified directly.
+- **The OCI-native assessment is a reading of the release notes**, not an
+  experiment. I did not try to run this stack as Proxmox application containers;
+  the conclusion that it cannot express compose ordering follows from what the
+  stack needs, not from a failed attempt.
 - The reverse-proxy and TLS setup is left to you; nothing here has been tested
   behind one.
 - NotebookLM has never been exercised with a real token, so the sidecar's
