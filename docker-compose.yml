@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-distiller}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-distiller}
+      POSTGRES_DB: ${POSTGRES_DB:-distiller}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      # Other services wait on this: starting the worker against a database
+      # that is still initialising just produces confusing connection errors.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-distiller} -d ${POSTGRES_DB:-distiller}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  sidecar:
+    build:
+      context: ./sidecar
+    restart: unless-stopped
+    environment:
+      NLM_AUTH_DIR: /auth
+      NLM_PROFILE: ${NLM_PROFILE:-default}
+      PORT: "8000"
+    volumes:
+      # Read-only: the sidecar never needs to modify the credential, and a
+      # token is the one thing in this stack that must not be writable.
+      - ./nlm_auth:/auth:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  app:
+    build:
+      context: ./app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
+      DATA_DIR: /data
+      APP_PASSWORD: ${APP_PASSWORD:?set APP_PASSWORD in .env - this UI fronts a real Google credential}
+      NODE_ENV: production
+    volumes:
+      - ./data:/data
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+  worker:
+    build:
+      context: ./app
+    restart: unless-stopped
+    command: ["node_modules/.bin/tsx", "src/worker/index.ts"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
+      DATA_DIR: /data
+      SIDECAR_URL: http://sidecar:8000
+      POLL_SCHEDULE: ${POLL_SCHEDULE:-*/30 * * * *}
+    volumes:
+      - ./data:/data
+
+volumes:
+  db_data:
