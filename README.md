@@ -98,6 +98,46 @@ enough turned out to be wrong.
 
 `nlm_auth/` is gitignored and mounted read-only. Never bake it into an image.
 
+### Why this asks for your Google password, and what to do about it
+
+NotebookLM has no public API for consumer accounts, so there is no OAuth app to
+consent to and no scoped token to grant. The only way to get a session is to
+authenticate the way a person does. Playwright drives an ordinary Chromium and
+the password goes to `accounts.google.com` over TLS, not to the tool.
+
+Two things are still worth weighing before you type it:
+
+- **The browser is automated**, so the driving process is technically capable of
+  reading the login page. `notebooklm-py` does not, and it is open source and
+  auditable - but this is extended trust, not zero trust.
+- **`master_token.json` is broader than the password session.** It is a
+  gpsoauth-style long-lived Google master token whose purpose is minting service
+  tokens. That is what buys unattended renewal, and it is also why it is a more
+  valuable credential than a NotebookLM cookie.
+
+**The mitigation that matters: use a dedicated Google account, not your primary.**
+Then the blast radius of that token is an account that does nothing else. Give
+it NotebookLM Pro if you want the 20 audio overviews a day.
+
+If you would rather not type a password into an automated browser at all, the
+CLI offers three ways round it:
+
+```bash
+# 1. Reuse the Chrome you already use and are already signed into
+pip install "notebooklm-py[cookies]"
+notebooklm login --browser-cookies chrome --account you@gmail.com
+
+# 2. Attach to a Chrome you launched yourself
+notebooklm login --master-token --account you@gmail.com --cdp-url http://localhost:9222
+
+# 3. Supply the token yourself, no browser involved
+notebooklm login --master-token --account you@gmail.com --oauth-token <TOKEN>
+```
+
+Option 1 skips Playwright entirely but yields cookies that expire, so you
+re-authenticate periodically. `--master-token` is what buys unattended renewal -
+the convenience and the credential's power are the same thing.
+
 The account tier sets the ceiling: NotebookLM **Pro** allows 20 audio overviews
 per day. The `notebooklm` renderer declares `dailyBudget: 20` as a local safety
 valve, but the upstream's own quota error is always treated as authoritative.
