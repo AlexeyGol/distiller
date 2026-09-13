@@ -28,6 +28,7 @@ import {
   attachSource,
   createSink,
   createSource,
+  updateSourceConfig,
   createTopic,
   deleteSink,
   deleteSource,
@@ -290,6 +291,37 @@ export async function createSourceAction(
   revalidatePath("/sources");
   revalidatePath("/");
   return { ok: true, message: "Source created." };
+}
+
+/**
+ * Edit an existing source: its label and its whole plugin config.
+ *
+ * Without this the only way to fix a typo in a feed URL, or to change a
+ * YouTube search query, was to delete the source and recreate it - which also
+ * deletes every item it ever ingested, because items cascade from sources.
+ * Editing in place keeps the history.
+ */
+export async function updateSourceAction(
+  _prev: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  const sourceId = text(form, "sourceId");
+  const pluginId = text(form, "pluginId");
+  try {
+    const plugin = registry().getSource(pluginId);
+    if (!plugin) throw new Error(`Unknown source plugin: "${pluginId}"`);
+    await updateSourceConfig(
+      db(),
+      sourceId,
+      text(form, "label"),
+      configFrom(form, plugin.configSchema),
+    );
+  } catch (cause) {
+    return { ok: false, message: describeError(cause) };
+  }
+  revalidatePath("/sources");
+  revalidatePath("/");
+  return { ok: true, message: "Source updated." };
 }
 
 /** The "Test" button. Runs the plugin validate(); never writes anything. */

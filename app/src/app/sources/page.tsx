@@ -2,8 +2,11 @@ import { db } from "../../db/client.js";
 import { listSinks, listSourceRuns } from "../../lib/queries.js";
 import { pluginCatalog } from "../../lib/catalog.js";
 import { formatStamp } from "../../lib/format.js";
+import { summariseConfig } from "../../lib/config-display.js";
 import { ActionForm } from "../../components/ActionForm.js";
 import { PluginConfigurator } from "../../components/PluginConfigurator.js";
+import { SchemaForm } from "../../components/SchemaForm.js";
+import { EditDialog } from "../../components/EditDialog.js";
 import {
   createSinkAction,
   createSourceAction,
@@ -14,6 +17,7 @@ import {
   setSourceEnabledAction,
   testSinkAction,
   testSourceAction,
+  updateSourceAction,
 } from "../actions.js";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +53,7 @@ export default async function SourcesPage() {
               <tr>
                 <th>Label</th>
                 <th>Type</th>
+                <th>Query / config</th>
                 <th>Items</th>
                 <th>Last polled</th>
                 <th>Last error</th>
@@ -67,6 +72,12 @@ export default async function SourcesPage() {
                     )}
                   </td>
                   <td className="mono">{source.pluginId}</td>
+                  <td
+                    className="mono muted"
+                    title={summariseConfig(source.config, 400)}
+                  >
+                    {summariseConfig(source.config)}
+                  </td>
                   <td>{source.itemCount}</td>
                   <td className="muted">{formatStamp(source.lastPolledAt)}</td>
                   <td className={source.lastError ? "err-msg" : "muted"}>
@@ -92,6 +103,62 @@ export default async function SourcesPage() {
                       >
                         <input type="hidden" name="sourceId" value={source.id} />
                       </ActionForm>
+                      <EditDialog
+                        triggerLabel="Edit"
+                        title={`Edit ${source.label}`}
+                      >
+                        {(() => {
+                          const entry = sourceCatalog.find(
+                            (p) => p.id === source.pluginId,
+                          );
+                          if (!entry) {
+                            return (
+                              <p className="err-msg">
+                                Plugin &quot;{source.pluginId}&quot; is not
+                                registered in this build, so its config cannot
+                                be edited here.
+                              </p>
+                            );
+                          }
+                          return (
+                            <ActionForm
+                              action={updateSourceAction}
+                              submitLabel="Save changes"
+                            >
+                              <input
+                                type="hidden"
+                                name="sourceId"
+                                value={source.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="pluginId"
+                                value={source.pluginId}
+                              />
+                              <div className="field">
+                                <label htmlFor={`label-${source.id}`}>
+                                  Label
+                                </label>
+                                <input
+                                  id={`label-${source.id}`}
+                                  name="label"
+                                  defaultValue={source.label}
+                                />
+                              </div>
+                              <SchemaForm
+                                fields={entry.fields}
+                                values={
+                                  (source.config ?? {}) as Record<
+                                    string,
+                                    unknown
+                                  >
+                                }
+                                idPrefix={`edit-${source.id}`}
+                              />
+                            </ActionForm>
+                          );
+                        })()}
+                      </EditDialog>
                       <form action={deleteSourceAction}>
                         <input type="hidden" name="sourceId" value={source.id} />
                         <button type="submit" className="btn link">

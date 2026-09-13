@@ -4,7 +4,9 @@ import { QuotaExhaustedError, TransientError } from "../core/types.js";
 import {
   DEFAULT_BASE_URL,
   NOTEBOOKLM_DAILY_BUDGET,
+  NOTEBOOKLM_ASK_DAILY_BUDGET,
   createNotebookLmRenderer,
+  createNotebookLmTextRenderer,
   notebookLmConfigSchema,
   audioFileName,
   notebookTitle,
@@ -381,6 +383,117 @@ describe("notebookTitle", () => {
     expect(notebookTitle(withKey("t:1234567890123"))).toBe(
       "AI News [t:1234567890123]",
     );
+  });
+});
+
+describe("notebooklm-text (summary only)", () => {
+  it("stops after asking: it never calls the audio endpoints", async () => {
+    // This is the entire reason the plugin exists. An audio overview is one of
+    // 20 per day; asking is one of ~500. Touching /audio here would spend 5% of
+    // the daily podcast budget to produce a paragraph of text.
+    const h = harness([
+      jsonResponse(201, { id: "nb1" }),
+      jsonResponse(200, { added: 2 }),
+      jsonResponse(200, { answer: "  The written digest.  " }),
+    ]);
+
+    const output = await createNotebookLmTextRenderer(h.deps).render(
+      config,
+      input,
+    );
+
+    expect(h.calls).toEqual([
+      "POST http://sidecar:8000/notebooks",
+      "POST http://sidecar:8000/notebooks/nb1/sources",
+      "POST http://sidecar:8000/notebooks/nb1/ask",
+    ]);
+    expect(h.calls.some((c) => c.includes("/audio"))).toBe(false);
+    expect(output.summary).toBe("The written digest.");
+  });
+
+  it("returns only a text artifact and writes no file", async () => {
+    const h = harness([
+      jsonResponse(201, { id: "nb1" }),
+      jsonResponse(200, {}),
+      jsonResponse(200, { answer: "Digest." }),
+    ]);
+
+    const output = await createNotebookLmTextRenderer(h.deps).render(
+      config,
+      input,
+    );
+
+    expect(output.artifacts).toEqual([
+      { kind: "text", mime: "text/plain", text: "Digest." },
+    ]);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("declares a far larger budget than the audio renderer", () => {
+    const text = createNotebookLmTextRenderer(harness([]).deps);
+    const audio = createNotebookLmRenderer(harness([]).deps);
+
+    expect(text.produces).toEqual({ text: true, audio: false });
+    expect(text.dailyBudget).toBe(NOTEBOOKLM_ASK_DAILY_BUDGET);
+    expect(text.dailyBudget!).toBeGreaterThan(audio.dailyBudget!);
+  });
+
+  it("sends the same sources and title as the audio renderer", async () => {
+    const h = harness([
+      jsonResponse(201, { id: "nb1" }),
+      jsonResponse(200, {}),
+      jsonResponse(200, { answer: "Digest." }),
+    ]);
+
+    await createNotebookLmTextRenderer(h.deps).render(config, input);
+
+    const fetchMock = vi.mocked(h.deps.fetch);
+    const createBody = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    );
+    expect(createBody.title).toBe(notebookTitle(input));
+    expect(createBody.jobKey).toBe("job-123");
+
+    const sourcesBody = JSON.parse(
+      String((fetchMock.mock.calls[1][1] as RequestInit).body),
+    );
+    expect(sourcesBody.urls).toEqual([
+      "https://example.com/1",
+      "https://example.com/2",
+    ]);
+  });
+
+  it("refuses an empty item list", async () => {
+    const h = harness([]);
+    await expect(
+      createNotebookLmTextRenderer(h.deps).render(config, {
+        ...input,
+        items: [],
+      }),
+    ).rejects.toThrow(/item list is empty/);
+    expect(h.calls).toEqual([]);
+  });
+
+  it("maps 429 to QuotaExhaustedError like the audio renderer", async () => {
+    const h = harness([
+      new Response(JSON.stringify({ detail: "chat limit" }), { status: 429 }),
+    ]);
+
+    await expect(
+      createNotebookLmTextRenderer(h.deps).render(config, input),
+    ).rejects.toBeInstanceOf(QuotaExhaustedError);
+  });
+
+  it("treats an empty answer as transient rather than shipping a blank digest", async () => {
+    const h = harness([
+      jsonResponse(201, { id: "nb1" }),
+      jsonResponse(200, {}),
+      jsonResponse(200, { answer: "   " }),
+    ]);
+
+    await expect(
+      createNotebookLmTextRenderer(h.deps).render(config, input),
+    ).rejects.toBeInstanceOf(TransientError);
   });
 });
 

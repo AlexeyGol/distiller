@@ -93,6 +93,13 @@ export interface SourceRun {
   lastPolledAt: Date | null;
   lastError: string | null;
   itemCount: number;
+  /**
+   * The stored plugin config: the feed URL, the search query, the channel id.
+   * Carried so the page can show what a source actually asks for and prefill
+   * the edit form. Secrets are masked at render time, not here - the edit form
+   * needs the real values to round-trip an unchanged field.
+   */
+  config: unknown;
 }
 
 /**
@@ -100,6 +107,17 @@ export interface SourceRun {
  * error per source, so a silent feed is one click from being explained.
  */
 export async function listSourceRuns(db: Database): Promise<SourceRun[]> {
+  // A LEFT JOIN + GROUP BY rather than a correlated subquery, deliberately.
+  //
+  // The subquery version silently returned 0 for every source: Drizzle renders
+  // an interpolated column inside sql`` WITHOUT its table qualifier, so
+  //     (select count(*) from items where source_id = id)
+  // resolved both bare names against the inner table and compared
+  // items.source_id to items.id. Valid SQL, never true, no error anywhere.
+  // Join conditions are qualified properly, so the scoping bug cannot recur.
+  //
+  // GROUP BY on the primary key is enough for Postgres to allow the other
+  // source columns in the select list.
   return db
     .select({
       id: sources.id,
@@ -108,12 +126,12 @@ export async function listSourceRuns(db: Database): Promise<SourceRun[]> {
       enabled: sources.enabled,
       lastPolledAt: sources.lastPolledAt,
       lastError: sources.lastError,
-      itemCount: sql<number>`(
-        select count(*)::int from ${items}
-        where ${items.sourceId} = ${sources.id}
-      )`,
+      config: sources.config,
+      itemCount: sql<number>`count(${items.id})::int`,
     })
     .from(sources)
+    .leftJoin(items, eq(items.sourceId, sources.id))
+    .groupBy(sources.id)
     .orderBy(sources.label);
 }
 

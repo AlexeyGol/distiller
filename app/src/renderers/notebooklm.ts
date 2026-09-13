@@ -55,6 +55,17 @@ export const DEFAULT_MAX_POLL_MS = 15 * 60_000;
 /** NotebookLM Pro allows 20 audio overviews per day. */
 export const NOTEBOOKLM_DAILY_BUDGET = 20;
 
+/**
+ * NotebookLM Pro allows roughly 500 chat queries per day, against 20 audio
+ * overviews. Asking for a summary is cheap; generating a podcast is not, which
+ * is the whole reason the text-only renderer exists as a separate choice.
+ *
+ * Reported limits, not contractual ones, and Google has been changing the
+ * accounting model - so this stays a local safety valve and the sidecar's own
+ * 429 remains authoritative.
+ */
+export const NOTEBOOKLM_ASK_DAILY_BUDGET = 500;
+
 export const DEFAULT_QUESTION =
   "Summarise these sources as a single spoken-word digest: lead with what matters most, group related items, and skip anything without substance.";
 
@@ -285,6 +296,127 @@ export function audioFileName(input: RenderInput): string {
   return `${base}-${date}-${stamp.slice(8, 12)}.mp3`;
 }
 
+/**
+ * Create the notebook, load the item URLs as sources, and ask for a summary.
+ *
+ * Shared by both NotebookLM renderers. This is the whole of the text-only
+ * renderer and the first half of the audio one, and it is the part that makes
+ * a NotebookLM summary worth having: the answer is grounded in the sources the
+ * notebook actually ingested, rather than in whatever text we managed to
+ * scrape and paste into a prompt.
+ */
+async function createAndSummarise(
+  deps: NotebookLmDeps,
+  resolved: ResolvedConfig,
+  input: RenderInput,
+): Promise<{ notebookId: string; summary: string }> {
+  if (input.items.length === 0) {
+    throw new Error("notebooklm: nothing to render, the item list is empty");
+  }
+
+  const created = await call(
+    deps,
+    resolved,
+    "/notebooks",
+    jsonInit({ title: notebookTitle(input), jobKey: input.jobKey }),
+    "create notebook",
+  );
+  const { id } = (await created.response.json()) as { id?: string };
+  if (!id) {
+    throw new TransientError(
+      "notebooklm: sidecar created a notebook without returning an id",
+    );
+  }
+
+  await call(
+    deps,
+    resolved,
+    `/notebooks/${id}/sources`,
+    jsonInit({ urls: input.items.map((item) => item.url) }),
+    "add sources",
+  );
+
+  const asked = await call(
+    deps,
+    resolved,
+    `/notebooks/${id}/ask`,
+    jsonInit({ question: resolved.instructions ?? DEFAULT_QUESTION }),
+    "ask for summary",
+  );
+  const { answer } = (await asked.response.json()) as { answer?: string };
+  const summary = (answer ?? "").trim();
+  if (summary === "") {
+    throw new TransientError("notebooklm: sidecar returned an empty answer");
+  }
+
+  return { notebookId: id, summary };
+}
+
+async function sidecarHealth(
+  deps: NotebookLmDeps,
+  config: NotebookLmConfig,
+): Promise<ValidationResult> {
+  const resolved = resolveConfig(config);
+  try {
+    const { response } = await call(
+      deps,
+      resolved,
+      "/health",
+      { method: "GET" },
+      "health check",
+    );
+    return { ok: true, message: `Sidecar healthy (${response.status}).` };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Text-only NotebookLM renderer.
+ *
+ * Exists because the two NotebookLM capabilities have very different costs.
+ * An audio overview is one of 20 per day on a Pro account and takes minutes;
+ * asking a question is one of roughly 500 per day and returns in seconds.
+ * Without this plugin the only way to get a source-grounded NotebookLM summary
+ * was to generate a podcast you did not want, spending 5% of the daily audio
+ * budget to obtain a paragraph of text.
+ *
+ * Use it for topics you want to read rather than listen to, and to keep the
+ * audio budget for the topics that are actually worth a podcast.
+ */
+export function createNotebookLmTextRenderer(
+  deps: NotebookLmDeps = defaultNotebookLmDeps,
+): RendererPlugin<NotebookLmConfig> {
+  return {
+    kind: "renderer",
+    id: "notebooklm-text",
+    label: "NotebookLM summary (text only)",
+    description:
+      "Sends the topic's item URLs to NotebookLM and returns just the grounded text summary. No audio, so it does not touch the 20-per-day audio overview budget.",
+    configSchema: notebookLmConfigSchema,
+    produces: { text: true, audio: false },
+    dailyBudget: NOTEBOOKLM_ASK_DAILY_BUDGET,
+
+    validate: (config: NotebookLmConfig) => sidecarHealth(deps, config),
+
+    async render(
+      config: NotebookLmConfig,
+      input: RenderInput,
+    ): Promise<RenderOutput> {
+      const resolved = resolveConfig(config);
+      const { summary } = await createAndSummarise(deps, resolved, input);
+
+      return {
+        summary,
+        artifacts: [{ kind: "text", mime: "text/plain", text: summary }],
+      };
+    },
+  };
+}
+
 export function createNotebookLmRenderer(
   deps: NotebookLmDeps = defaultNotebookLmDeps,
 ): RendererPlugin<NotebookLmConfig> {
@@ -298,68 +430,18 @@ export function createNotebookLmRenderer(
     produces: { text: true, audio: true },
     dailyBudget: NOTEBOOKLM_DAILY_BUDGET,
 
-    async validate(config: NotebookLmConfig): Promise<ValidationResult> {
-      const resolved = resolveConfig(config);
-      try {
-        const { response } = await call(
-          deps,
-          resolved,
-          "/health",
-          { method: "GET" },
-          "health check",
-        );
-        return { ok: true, message: `Sidecar healthy (${response.status}).` };
-      } catch (error) {
-        return {
-          ok: false,
-          message: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
+    validate: (config: NotebookLmConfig) => sidecarHealth(deps, config),
 
     async render(
       config: NotebookLmConfig,
       input: RenderInput,
     ): Promise<RenderOutput> {
-      if (input.items.length === 0) {
-        throw new Error("notebooklm: nothing to render, the item list is empty");
-      }
       const resolved = resolveConfig(config);
-
-      const created = await call(
+      const { notebookId: id, summary } = await createAndSummarise(
         deps,
         resolved,
-        "/notebooks",
-        jsonInit({ title: notebookTitle(input), jobKey: input.jobKey }),
-        "create notebook",
+        input,
       );
-      const { id } = (await created.response.json()) as { id?: string };
-      if (!id) {
-        throw new TransientError(
-          "notebooklm: sidecar created a notebook without returning an id",
-        );
-      }
-
-      await call(
-        deps,
-        resolved,
-        `/notebooks/${id}/sources`,
-        jsonInit({ urls: input.items.map((item) => item.url) }),
-        "add sources",
-      );
-
-      const asked = await call(
-        deps,
-        resolved,
-        `/notebooks/${id}/ask`,
-        jsonInit({ question: resolved.instructions ?? DEFAULT_QUESTION }),
-        "ask for summary",
-      );
-      const { answer } = (await asked.response.json()) as { answer?: string };
-      const summary = (answer ?? "").trim();
-      if (summary === "") {
-        throw new TransientError("notebooklm: sidecar returned an empty answer");
-      }
 
       await call(
         deps,
@@ -432,3 +514,5 @@ async function pollForAudio(
 
 /** Registry instance. Tests build their own with createNotebookLmRenderer. */
 export const notebookLmRenderer = createNotebookLmRenderer();
+
+export const notebookLmTextRenderer = createNotebookLmTextRenderer();
