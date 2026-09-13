@@ -202,19 +202,42 @@ function jsonInit(body: unknown): RequestInit {
 // Plugin
 // ---------------------------------------------------------------------------
 
+/** Trailing YYYYMMDDHHMM stamp produced by makeJobKey. */
+const JOB_KEY_STAMP = /(?:^|:)(\d{12})$/;
+
 /**
- * Notebook title. The jobKey is embedded so a retry is recognisable both in the
- * sidecar and in the NotebookLM UI.
+ * Notebook title, as a human reads it in the NotebookLM list:
  *
- * Honest limitation: this is only half of idempotency. We also send jobKey in
- * the create body, but whether a retry reuses the existing notebook is entirely
- * the sidecar's call - NotebookLM itself has no idempotency key. If the sidecar
- * does not dedupe, a retry after a mid-render crash leaves an orphan notebook
- * and burns one of the 20 daily audio overviews. The title is what makes that
- * orphan findable and cleanable.
+ *     AI News - 2026-09-13 00:49
+ *
+ * The title is for people and the jobKey is for machines, so they travel
+ * separately: the jobKey goes in the create body where the sidecar can key off
+ * it. An earlier version embedded the raw jobKey here, which meant a UUID ate
+ * the visible width of every row and made one topic's notebooks
+ * indistinguishable at a glance.
+ *
+ * Name plus minute is already unique: makeJobKey stamps to the minute and the
+ * digests table has a unique index on jobKey, so two digests for one topic
+ * cannot share a minute.
+ *
+ * Honest limitation: this is only half of idempotency. Whether a retry reuses
+ * an existing notebook is the sidecar's call - NotebookLM has no idempotency
+ * key. If it does not dedupe, a retry after a mid-render crash leaves an orphan
+ * and burns one of the 20 daily audio overviews. A readable title is what makes
+ * that orphan findable and cleanable, which is the second reason not to bury it
+ * under a UUID.
  */
 export function notebookTitle(input: RenderInput): string {
-  return `${input.topic.name} [${input.jobKey}]`;
+  const stamp = JOB_KEY_STAMP.exec(input.jobKey)?.[1];
+  if (!stamp) {
+    // An unrecognised jobKey shape still needs a unique, findable title.
+    return `${input.topic.name} [${input.jobKey}]`;
+  }
+
+  const when =
+    `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)} ` +
+    `${stamp.slice(8, 10)}:${stamp.slice(10, 12)}`;
+  return `${input.topic.name} - ${when}`;
 }
 
 export function createNotebookLmRenderer(

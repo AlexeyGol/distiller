@@ -158,7 +158,7 @@ describe("notebooklm happy path", () => {
     ]);
   });
 
-  it("sends the item urls as sources and the jobKey in the notebook title", async () => {
+  it("sends the item urls as sources and the jobKey in the create body", async () => {
     const h = harness([
       jsonResponse(201, { id: "nb1" }),
       jsonResponse(200, {}),
@@ -173,10 +173,9 @@ describe("notebooklm happy path", () => {
     const createBody = JSON.parse(
       String((fetchMock.mock.calls[0][1] as RequestInit).body),
     );
-    expect(createBody.title).toBe("AI safety [job-123]");
-    expect(createBody.title).toContain(input.jobKey);
+    // The machine key rides in the body, not the title.
     expect(createBody.jobKey).toBe("job-123");
-    expect(notebookTitle(input)).toBe("AI safety [job-123]");
+    expect(createBody.title).toBe("AI safety [job-123]");
 
     const sourcesBody = JSON.parse(
       String((fetchMock.mock.calls[1][1] as RequestInit).body),
@@ -342,5 +341,44 @@ describe("notebooklm manifest and config", () => {
     expect(
       notebookLmConfigSchema.safeParse({ maxPollMs: 1.5 }).success,
     ).toBe(false);
+  });
+});
+
+describe("notebookTitle", () => {
+  /** The real shape produced by makeJobKey: "<uuid>:<YYYYMMDDHHMM>". */
+  const realJobKey = "f8f9161c-5c5b-4a67-abbf-5a464f1bc5fa:202609130049";
+
+  function withKey(jobKey: string, name = "AI News"): RenderInput {
+    return { topic: { id: "t1", name }, items: [], jobKey };
+  }
+
+  it("reads as topic name plus a human date, with no uuid", () => {
+    const title = notebookTitle(withKey(realJobKey));
+    expect(title).toBe("AI News - 2026-09-13 00:49");
+    expect(title).not.toContain("f8f9161c");
+  });
+
+  it("stays distinct for two digests of the same topic", () => {
+    // Different minutes must not collide in the NotebookLM list.
+    const a = notebookTitle(withKey("t:202609130049"));
+    const b = notebookTitle(withKey("t:202609130050"));
+    expect(a).not.toBe(b);
+  });
+
+  it("distinguishes topics rendered in the same minute", () => {
+    expect(notebookTitle(withKey("a:202609130049", "AI News"))).not.toBe(
+      notebookTitle(withKey("a:202609130049", "Rust News")),
+    );
+  });
+
+  it("falls back to the raw jobKey when the shape is unrecognised", () => {
+    // Never produce a non-unique title: an orphaned notebook must stay findable.
+    expect(notebookTitle(withKey("job-123"))).toBe("AI News [job-123]");
+  });
+
+  it("does not mistake a long digit run for a stamp", () => {
+    expect(notebookTitle(withKey("t:1234567890123"))).toBe(
+      "AI News [t:1234567890123]",
+    );
   });
 });
