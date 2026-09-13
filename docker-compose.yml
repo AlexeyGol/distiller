@@ -22,6 +22,33 @@ services:
     build:
       context: ./sidecar
     restart: unless-stopped
+    # Explicit resolver, because the default does not work for these images.
+    #
+    # Docker's embedded resolver forwards to the host's nameservers, and this
+    # host lists the LAN router first. musl (alpine) queries every nameserver in
+    # parallel and sails past a dead one; glibc (these debian-based images)
+    # tries them sequentially and gives up after `attempts:2 timeout:2`. The
+    # symptom is EAI_AGAIN / "Temporary failure in name resolution" in every
+    # container while `docker run alpine` resolves fine - which is exactly the
+    # wrong signal, since it makes the network look healthy.
+    #
+    # Override DNS_SERVER if 8.8.8.8 is blocked on your network.
+    dns:
+      - ${DNS_SERVER:-8.8.8.8}
+      - ${DNS_SERVER_ALT:-1.1.1.1}
+    # Run as the host user that owns nlm_auth.
+    #
+    # The image's own user is uid 10001, but the credentials are mode 700/600
+    # owned by the host user - which is correct, they are the most sensitive
+    # thing on the box and no other local account should read them. The
+    # alternatives were worse: loosening the host files to 0644 exposes a Google
+    # master token to every user on the machine, and chowning them to 10001
+    # means you cannot read your own credentials without sudo.
+    #
+    # Safe because the mount is read-only and /app in the image is
+    # world-readable (755/644), so a different uid loses no access it needs.
+    # Override NLM_UID/NLM_GID if your host user is not 1000.
+    user: "${NLM_UID:-1000}:${NLM_GID:-1000}"
     environment:
       NLM_AUTH_DIR: /auth
       NLM_PROFILE: ${NLM_PROFILE:-default}
@@ -69,6 +96,20 @@ services:
     build:
       context: ./app
     restart: unless-stopped
+    # Explicit resolver, because the default does not work for these images.
+    #
+    # Docker's embedded resolver forwards to the host's nameservers, and this
+    # host lists the LAN router first. musl (alpine) queries every nameserver in
+    # parallel and sails past a dead one; glibc (these debian-based images)
+    # tries them sequentially and gives up after `attempts:2 timeout:2`. The
+    # symptom is EAI_AGAIN / "Temporary failure in name resolution" in every
+    # container while `docker run alpine` resolves fine - which is exactly the
+    # wrong signal, since it makes the network look healthy.
+    #
+    # Override DNS_SERVER if 8.8.8.8 is blocked on your network.
+    dns:
+      - ${DNS_SERVER:-8.8.8.8}
+      - ${DNS_SERVER_ALT:-1.1.1.1}
     depends_on:
       db:
         condition: service_healthy
@@ -88,6 +129,20 @@ services:
     build:
       context: ./app
     restart: unless-stopped
+    # Explicit resolver, because the default does not work for these images.
+    #
+    # Docker's embedded resolver forwards to the host's nameservers, and this
+    # host lists the LAN router first. musl (alpine) queries every nameserver in
+    # parallel and sails past a dead one; glibc (these debian-based images)
+    # tries them sequentially and gives up after `attempts:2 timeout:2`. The
+    # symptom is EAI_AGAIN / "Temporary failure in name resolution" in every
+    # container while `docker run alpine` resolves fine - which is exactly the
+    # wrong signal, since it makes the network look healthy.
+    #
+    # Override DNS_SERVER if 8.8.8.8 is blocked on your network.
+    dns:
+      - ${DNS_SERVER:-8.8.8.8}
+      - ${DNS_SERVER_ALT:-1.1.1.1}
     command: ["node_modules/.bin/tsx", "src/worker/index.ts"]
     depends_on:
       db:
