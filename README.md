@@ -134,6 +134,52 @@ notebooklm login --master-token --account you@gmail.com --cdp-url http://localho
 notebooklm login --master-token --account you@gmail.com --oauth-token <TOKEN>
 ```
 
+#### The manual route, start to finish
+
+This is the most reliable path: nothing about it looks automated to Google, and
+it needs neither Playwright nor the ~220 MB browser download.
+
+```bash
+# 1. A venv OUTSIDE the repo - this is a one-time tool, not a project dependency
+python3 -m venv ~/nlm-env
+source ~/nlm-env/bin/activate
+pip install "notebooklm-py[headless]"     # no [browser] needed for this route
+```
+
+Now, in your own browser (not an automated one):
+
+```
+2. Open  https://accounts.google.com/EmbeddedSetup   and sign in
+3. F12 -> Application -> Cookies -> https://accounts.google.com
+4. Copy the value of the  oauth_token  cookie
+```
+
+Then, promptly - the token is single-use and short-lived:
+
+```bash
+# 5. Exchange it for the durable master token
+notebooklm login --master-token --account you@gmail.com --oauth-token 'PASTE_HERE'
+
+# 6. Confirm it worked
+notebooklm auth check
+ls -l ~/.notebooklm/profiles/default/
+#    expect BOTH storage_state.json and master_token.json
+
+# 7. Install it for the sidecar
+mkdir -p ~/distiller-mvp/nlm_auth/profiles/default
+cp ~/.notebooklm/profiles/default/storage_state.json    ~/.notebooklm/profiles/default/master_token.json    ~/distiller-mvp/nlm_auth/profiles/default/
+chmod 700 ~/distiller-mvp/nlm_auth
+chmod 600 ~/distiller-mvp/nlm_auth/profiles/default/*
+
+# 8. Restart and verify
+cd ~/distiller-mvp && docker compose restart sidecar
+curl -s localhost:8000/health
+#    expect {"status":"ok","notebooklm_available":true}
+```
+
+Quote the token in step 5: it can contain characters the shell would otherwise
+interpret.
+
 #### Where `<TOKEN>` comes from
 
 The browser capture is not doing anything exotic: it opens
