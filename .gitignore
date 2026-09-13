@@ -1,9 +1,24 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.js
+
+# python (sidecar)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# runtime artifacts - rendered mp3s live here, never in git
+data/
+
+# secrets - the NotebookLM master token is a real credential.
+# Listed before any token exists, which is the only time it is cheap to do.
+nlm_auth/
+*.token.json
+master_token.json
 
 # testing
 /coverage
