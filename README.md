@@ -43,12 +43,23 @@ instances, keeps config) and the **instance** (pause one feed or destination).
 
 ```bash
 cp .env.example .env        # set APP_PASSWORD at minimum
-docker compose up -d db
-cd app && npm ci && npm run db:migrate
 docker compose up -d
 ```
 
 Then open http://localhost:3000.
+
+That is the whole thing. A `migrate` service runs the schema migrations once and
+exits, and `app` and `worker` wait for it to succeed, so a fresh host needs no
+manual step. Verified from a wiped volume.
+
+Optionally seed a topic with real working feeds:
+
+```bash
+docker compose run --rm migrate node_modules/.bin/tsx src/db/seed.ts
+```
+
+Deploying to a home server, including Proxmox and secret handling, is in
+[DEPLOY.md](./DEPLOY.md).
 
 ## NotebookLM credentials
 
