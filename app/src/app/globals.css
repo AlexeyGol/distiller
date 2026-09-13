@@ -1,0 +1,462 @@
+/* Plain CSS on purpose: Tailwind is not a dependency of this project. */
+
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-2: #1e222b;
+  --line: #2a2f3a;
+  --text: #e6e8ee;
+  --muted: #939aab;
+  --accent: #6aa9ff;
+  --ok: #58c98a;
+  --err: #ff7a7a;
+  --warn: #f0b64b;
+  --radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 20px 140px;
+}
+
+/* ---------------------------------------------------------------- topbar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.topbar nav a {
+  color: var(--muted);
+}
+
+.topbar nav a:hover {
+  color: var(--text);
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.warn-pill {
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------------- layout */
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+h2 {
+  font-size: 17px;
+  margin: 0 0 12px;
+}
+
+h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- stats */
+
+.stat {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.stat .n {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.stat .k {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- forms */
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field .req {
+  color: var(--err);
+}
+
+input[type="text"],
+input[type="url"],
+input[type="number"],
+input[type="password"],
+select,
+textarea {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  width: 100%;
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+textarea {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+  font-weight: 600;
+}
+
+.btn.danger {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.btn.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+}
+
+.ok-msg {
+  color: var(--ok);
+  margin: 0;
+  font-size: 13px;
+}
+
+.err-msg {
+  color: var(--err);
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+/* --------------------------------------------------------------- tables */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --------------------------------------------------------------- badges */
+
+.badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.badge.draft {
+  border-color: var(--muted);
+}
+
+.badge.approved {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.badge.rendering {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.badge.ready {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.badge.failed {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+/* ---------------------------------------------------------------- items */
+
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.items li {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 10px 12px;
+}
+
+.items li.dimmed {
+  opacity: 0.5;
+}
+
+.item-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-meta {
+  font-size: 12px;
+}
+
+.excerpt {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.summary {
+  white-space: pre-wrap;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin: 0;
+  font: inherit;
+}
+
+/* --------------------------------------------------------------- player */
+
+.player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.player audio {
+  flex: 1;
+  min-width: 220px;
+  height: 36px;
+}
+
+.player-meta {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- login */
+
+.login {
+  max-width: 340px;
+  margin: 80px auto;
+}
+
+/* --- modal ---------------------------------------------------------------
+   Native <dialog>, so focus trapping, Escape and the top layer come free. */
+.modal {
+  border: 1px solid var(--line, #2a2f3a);
+  border-radius: 10px;
+  background: var(--card, #141821);
+  color: inherit;
+  padding: 0;
+  max-width: min(680px, calc(100vw - 32px));
+  width: 100%;
+}
+
+.modal::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.modal-body {
+  padding: 20px 22px 22px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
+.modal-head h3 {
+  margin: 0;
+}

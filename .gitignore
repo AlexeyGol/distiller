@@ -1,19 +1,50 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.js
 
+# python
+#
+# Virtualenvs, by every name this project has actually used. There is no
+# pattern for "a directory containing pyvenv.cfg", so these have to be listed:
+# the NotebookLM login instructions create `nlm-env`, and it arrives with
+# Playwright inside it at ~220 MB.
+.venv/
+venv/
+nlm-env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Playwright browser binaries, wherever a venv puts them
+.cache/ms-playwright/
+
+# runtime artifacts - rendered mp3s live here, never in git
+data/
+
+# secrets - the NotebookLM master token is a real credential.
+# Listed before any token exists, which is the only time it is cheap to do.
+nlm_auth/
+*.token.json
+master_token.json
+
 # testing
-/coverage
+coverage/
 
 # next.js
-/.next/
-/out/
+#
+# NO leading slash. A leading slash anchors the pattern to the repo root, and
+# this is a monorepo: the app lives at app/, so "/.next/" never matched
+# app/.next/ and 164 build artifacts were being committed - including a 24 MB
+# webpack cache pack. Same trap that let app/node_modules/ through.
+.next/
+out/
 
 # production
-/build
+build/
+dist/
 
 # misc
 .DS_Store

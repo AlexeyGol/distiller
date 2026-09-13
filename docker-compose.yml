@@ -1,0 +1,185 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-distiller}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-distiller}
+      POSTGRES_DB: ${POSTGRES_DB:-distiller}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      # Other services wait on this: starting the worker against a database
+      # that is still initialising just produces confusing connection errors.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-distiller} -d ${POSTGRES_DB:-distiller}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  sidecar:
+    build:
+      context: ./sidecar
+    restart: unless-stopped
+    # Explicit resolver, because the default does not work for these images.
+    #
+    # Docker's embedded resolver forwards to the host's nameservers, and this
+    # host lists the LAN router first. musl (alpine) queries every nameserver in
+    # parallel and sails past a dead one; glibc (these debian-based images)
+    # tries them sequentially and gives up after `attempts:2 timeout:2`. The
+    # symptom is EAI_AGAIN / "Temporary failure in name resolution" in every
+    # container while `docker run alpine` resolves fine - which is exactly the
+    # wrong signal, since it makes the network look healthy.
+    #
+    # Override DNS_SERVER if 8.8.8.8 is blocked on your network.
+    dns:
+      - ${DNS_SERVER:-8.8.8.8}
+      - ${DNS_SERVER_ALT:-1.1.1.1}
+    # Run as the host user that owns nlm_auth.
+    #
+    # The image's own user is uid 10001, but the credentials are mode 700/600
+    # owned by the host user - which is correct, they are the most sensitive
+    # thing on the box and no other local account should read them. The
+    # alternatives were worse: loosening the host files to 0644 exposes a Google
+    # master token to every user on the machine, and chowning them to 10001
+    # means you cannot read your own credentials without sudo.
+    #
+    # Safe because the mount is read-only and /app in the image is
+    # world-readable (755/644), so a different uid loses no access it needs.
+    # Override NLM_UID/NLM_GID if your host user is not 1000.
+    user: "${NLM_UID:-1000}:${NLM_GID:-1000}"
+    environment:
+      NLM_AUTH_DIR: /auth
+      NLM_PROFILE: ${NLM_PROFILE:-default}
+      PORT: "8000"
+    volumes:
+      # Read-only: the sidecar never needs to modify the credential, and a
+      # token is the one thing in this stack that must not be writable.
+      - ./nlm_auth:/auth:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      # Bound to loopback ON PURPOSE. The app and worker reach the sidecar over
+      # the compose network as http://sidecar:8000 and need nothing published;
+      # this exists so `npm run dev` on the host can reach it too. The sidecar
+      # drives a real Google account and has no auth of its own, so it must not
+      # be published on the LAN - the explicit 127.0.0.1 prefix is what stops
+      # Docker binding 0.0.0.0 by default.
+      - "127.0.0.1:${SIDECAR_PORT:-8000}:8000"
+
+  # Runs migrations once and exits. app and worker wait for it to SUCCEED, so a
+  # fresh host comes up with a schema without anyone running a command by hand.
+  #
+  # Without this the stack starts happily against an empty database and fails at
+  # the first query - the failure surfaces far from its cause, in the app rather
+  # than in deployment.
+  #
+  # Drizzle records applied migrations in its own table, so re-running on every
+  # boot is a no-op and safe.
+  migrate:
+    build:
+      context: ./app
+    restart: "no"
+    command: ["node_modules/.bin/tsx", "src/db/migrate.ts"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
+
+  app:
+    build:
+      context: ./app
+    restart: unless-stopped
+    # Explicit resolver, because the default does not work for these images.
+    #
+    # Docker's embedded resolver forwards to the host's nameservers, and this
+    # host lists the LAN router first. musl (alpine) queries every nameserver in
+    # parallel and sails past a dead one; glibc (these debian-based images)
+    # tries them sequentially and gives up after `attempts:2 timeout:2`. The
+    # symptom is EAI_AGAIN / "Temporary failure in name resolution" in every
+    # container while `docker run alpine` resolves fine - which is exactly the
+    # wrong signal, since it makes the network look healthy.
+    #
+    # Override DNS_SERVER if 8.8.8.8 is blocked on your network.
+    dns:
+      - ${DNS_SERVER:-8.8.8.8}
+      - ${DNS_SERVER_ALT:-1.1.1.1}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
+      DATA_DIR: /data
+      APP_PASSWORD: ${APP_PASSWORD:?set APP_PASSWORD in .env - this UI fronts a real Google credential}
+      NODE_ENV: production
+    volumes:
+      - ./data:/data
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+  worker:
+    build:
+      context: ./app
+    restart: unless-stopped
+    # Explicit resolver, because the default does not work for these images.
+    #
+    # Docker's embedded resolver forwards to the host's nameservers, and this
+    # host lists the LAN router first. musl (alpine) queries every nameserver in
+    # parallel and sails past a dead one; glibc (these debian-based images)
+    # tries them sequentially and gives up after `attempts:2 timeout:2`. The
+    # symptom is EAI_AGAIN / "Temporary failure in name resolution" in every
+    # container while `docker run alpine` resolves fine - which is exactly the
+    # wrong signal, since it makes the network look healthy.
+    #
+    # Override DNS_SERVER if 8.8.8.8 is blocked on your network.
+    dns:
+      - ${DNS_SERVER:-8.8.8.8}
+      - ${DNS_SERVER_ALT:-1.1.1.1}
+    command: ["node_modules/.bin/tsx", "src/worker/index.ts"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The image's default HEALTHCHECK probes http://localhost:3000, which the
+    # worker never serves - it would sit unhealthy forever and, under a restart
+    # policy, be killed in a loop despite running correctly.
+    #
+    # A worker is healthy when it can reach the database, since that is both its
+    # queue and its data. Checking the process is alive would be redundant:
+    # Docker already restarts it if it exits.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const { Client } = require("pg");
+          const c = new Client({ connectionString: process.env.DATABASE_URL });
+          c.connect()
+            .then(() => c.query("select 1"))
+            .then(() => c.end())
+            .then(() => process.exit(0))
+            .catch(() => process.exit(1));
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-distiller}:${POSTGRES_PASSWORD:-distiller}@db:5432/${POSTGRES_DB:-distiller}
+      DATA_DIR: /data
+      SIDECAR_URL: http://sidecar:8000
+      POLL_SCHEDULE: ${POLL_SCHEDULE:-*/30 * * * *}
+    volumes:
+      - ./data:/data
+
+volumes:
+  db_data:
