@@ -40,7 +40,7 @@ const SEED = {
     description:
       "Developments in AI tooling, models and agents. Skips sponsored posts.",
     curationMode: "manual" as const,
-    rendererId: "llm-text",
+    rendererId: "notebooklm-text",
     schedule: "0 7 * * *",
   },
   sources: [
@@ -87,6 +87,7 @@ async function main() {
     ["youtube-channel", "source"],
     ["youtube-search", "source"],
     ["llm-text", "renderer"],
+    ["notebooklm-text", "renderer"],
     ["notebooklm", "renderer"],
     ["telegram", "sink"],
   ] as const) {

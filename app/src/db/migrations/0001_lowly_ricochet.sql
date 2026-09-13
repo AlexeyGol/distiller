@@ -1,0 +1,1 @@
+ALTER TABLE "topics" ALTER COLUMN "renderer_id" SET DEFAULT 'notebooklm-text';

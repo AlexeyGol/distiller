@@ -26,7 +26,10 @@ export const topics = pgTable("topics", {
   schedule: text("schedule"),
   /** "auto" renders immediately; "manual" waits for curation. */
   curationMode: text("curation_mode").notNull().default("manual"),
-  rendererId: text("renderer_id").notNull().default("llm-text"),
+  // notebooklm-text is the default: it is the reason to run this app rather
+  // than a feed reader, and unlike the audio renderer it does not spend one of
+  // 20 daily overviews. llm-text stays the fallback when NotebookLM breaks.
+  rendererId: text("renderer_id").notNull().default("notebooklm-text"),
   rendererConfig: jsonb("renderer_config").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

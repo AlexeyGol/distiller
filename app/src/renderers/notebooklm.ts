@@ -46,6 +46,24 @@ export const notebookLmConfigSchema = z.object({
 
 export type NotebookLmConfig = z.infer<typeof notebookLmConfigSchema>;
 
+/**
+ * Where the sidecar lives when a topic's config does not say.
+ *
+ * `http://sidecar:8000` is correct inside compose, where the service name
+ * resolves on the shared network. It resolves to nothing when `npm run dev`
+ * runs on the host, so SIDECAR_URL overrides it - set to
+ * `http://localhost:8000` in `.env.local`, alongside the loopback port the
+ * compose file publishes for exactly this reason.
+ *
+ * Read lazily rather than at module load: the env file is loaded by an import
+ * in the entry point, and a constant evaluated at import time could win the
+ * race depending on module order.
+ */
+export function defaultBaseUrl(): string {
+  return process.env.SIDECAR_URL ?? "http://sidecar:8000";
+}
+
+/** @deprecated Prefer defaultBaseUrl(); kept so existing imports still resolve. */
 export const DEFAULT_BASE_URL = "http://sidecar:8000";
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -79,7 +97,7 @@ interface ResolvedConfig {
 
 function resolveConfig(config: NotebookLmConfig): ResolvedConfig {
   return {
-    baseUrl: (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    baseUrl: (config.baseUrl ?? defaultBaseUrl()).replace(/\/+$/, ""),
     timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     pollIntervalMs: config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     maxPollMs: config.maxPollMs ?? DEFAULT_MAX_POLL_MS,

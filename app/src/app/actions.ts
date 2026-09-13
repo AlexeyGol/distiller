@@ -119,7 +119,7 @@ export async function createTopicAction(
 ): Promise<ActionState> {
   let id: string;
   try {
-    const rendererId = text(form, "rendererId") || "llm-text";
+    const rendererId = text(form, "rendererId") || "notebooklm-text";
     const plugin = registry().getRenderer(rendererId);
     const rendererConfig = plugin
       ? valuesFromFormData(describeSchema(plugin.configSchema), form, "renderer.")

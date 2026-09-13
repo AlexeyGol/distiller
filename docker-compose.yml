@@ -36,6 +36,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    ports:
+      # Bound to loopback ON PURPOSE. The app and worker reach the sidecar over
+      # the compose network as http://sidecar:8000 and need nothing published;
+      # this exists so `npm run dev` on the host can reach it too. The sidecar
+      # drives a real Google account and has no auth of its own, so it must not
+      # be published on the LAN - the explicit 127.0.0.1 prefix is what stops
+      # Docker binding 0.0.0.0 by default.
+      - "127.0.0.1:${SIDECAR_PORT:-8000}:8000"
 
   # Runs migrations once and exits. app and worker wait for it to SUCCEED, so a
   # fresh host comes up with a schema without anyone running a command by hand.
