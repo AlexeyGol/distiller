@@ -16,6 +16,22 @@ import { TransientError } from "../types.js";
 /** Identifies the poller to feed hosts that rate-limit or block unknown agents. */
 const DEFAULT_USER_AGENT = "Distiller/0.1 (+https://github.com/distiller)";
 
+/**
+ * A non-retryable 4xx from a feed host. Carries the status so a plugin can give
+ * a host-specific diagnosis (Reddit's 429 vs 403 vs 404 mean very different
+ * things) without re-implementing the transport or parsing an error string.
+ * It stays a plain Error, so callers that only care "this will not fix itself"
+ * keep working unchanged.
+ */
+export class FeedHttpError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "FeedHttpError";
+    this.status = status;
+  }
+}
+
 export interface ConditionalGetResult {
   /** True when the server confirmed nothing changed. `body` is then empty. */
   notModified: boolean;
@@ -59,7 +75,10 @@ export async function conditionalGet(
   if (!response.ok) {
     // 4xx means the feed URL itself is wrong or we are blocked - retrying the
     // identical request will not fix it, so this must not look transient.
-    throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
+    throw new FeedHttpError(
+      `Failed to fetch ${url}: HTTP ${response.status}`,
+      response.status,
+    );
   }
 
   return {

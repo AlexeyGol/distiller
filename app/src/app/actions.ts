@@ -29,6 +29,7 @@ import {
   createSink,
   createSource,
   updateSourceConfig,
+  updateSinkConfig,
   createTopic,
   deleteSink,
   deleteSource,
@@ -399,6 +400,29 @@ export async function testSinkAction(
   const plugin = registry().getSink(pluginId);
   if (!plugin) return { ok: false, message: `Unknown plugin: "${pluginId}"` };
   return testSinkConfig(pluginId, configFrom(form, plugin.configSchema));
+}
+
+/** Edit an existing sink: label plus its whole plugin config. */
+export async function updateSinkAction(
+  _prev: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  const sinkId = text(form, "sinkId");
+  const pluginId = text(form, "pluginId");
+  try {
+    const plugin = registry().getSink(pluginId);
+    if (!plugin) throw new Error(`Unknown sink plugin: "${pluginId}"`);
+    await updateSinkConfig(
+      db(),
+      sinkId,
+      text(form, "label"),
+      configFrom(form, plugin.configSchema),
+    );
+  } catch (cause) {
+    return { ok: false, message: describeError(cause) };
+  }
+  revalidatePath("/sources");
+  return { ok: true, message: "Sink updated." };
 }
 
 export async function setSinkEnabledAction(form: FormData): Promise<void> {

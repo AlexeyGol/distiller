@@ -17,6 +17,7 @@ import {
   setSourceEnabledAction,
   testSinkAction,
   testSourceAction,
+  updateSinkAction,
   updateSourceAction,
 } from "../actions.js";
 
@@ -198,6 +199,7 @@ export default async function SourcesPage() {
               <tr>
                 <th>Label</th>
                 <th>Type</th>
+                <th>Config</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -213,6 +215,12 @@ export default async function SourcesPage() {
                     )}
                   </td>
                   <td className="mono">{sink.pluginId}</td>
+                  <td
+                    className="mono muted"
+                    title={summariseConfig(sink.config, 400)}
+                  >
+                    {summariseConfig(sink.config)}
+                  </td>
                   <td>
                     <div className="row">
                       <form action={setSinkEnabledAction}>
@@ -226,6 +234,59 @@ export default async function SourcesPage() {
                           {sink.enabled ? "Disable" : "Enable"}
                         </button>
                       </form>
+                      <EditDialog
+                        triggerLabel="Edit"
+                        title={`Edit ${sink.label}`}
+                      >
+                        {(() => {
+                          const entry = sinkCatalog.find(
+                            (p) => p.id === sink.pluginId,
+                          );
+                          if (!entry) {
+                            return (
+                              <p className="err-msg">
+                                Plugin &quot;{sink.pluginId}&quot; is not
+                                registered in this build, so its config cannot
+                                be edited here.
+                              </p>
+                            );
+                          }
+                          return (
+                            <ActionForm
+                              action={updateSinkAction}
+                              submitLabel="Save changes"
+                            >
+                              <input
+                                type="hidden"
+                                name="sinkId"
+                                value={sink.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="pluginId"
+                                value={sink.pluginId}
+                              />
+                              <div className="field">
+                                <label htmlFor={`sink-label-${sink.id}`}>
+                                  Label
+                                </label>
+                                <input
+                                  id={`sink-label-${sink.id}`}
+                                  name="label"
+                                  defaultValue={sink.label}
+                                />
+                              </div>
+                              <SchemaForm
+                                fields={entry.fields}
+                                values={
+                                  (sink.config ?? {}) as Record<string, unknown>
+                                }
+                                idPrefix={`edit-sink-${sink.id}`}
+                              />
+                            </ActionForm>
+                          );
+                        })()}
+                      </EditDialog>
                       <form action={deleteSinkAction}>
                         <input type="hidden" name="sinkId" value={sink.id} />
                         <button type="submit" className="btn link">

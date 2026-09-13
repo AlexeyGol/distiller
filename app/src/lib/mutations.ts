@@ -363,6 +363,36 @@ export async function createSink(
   return row!;
 }
 
+/**
+ * Edit an existing sink's label and config.
+ *
+ * Sinks hold the credentials most likely to need changing: a Telegram bot
+ * token gets rotated, a chat id was pasted wrong. Without this the only fix
+ * was delete-and-recreate, which also drops the sink's delivery history and
+ * detaches it from every topic.
+ *
+ * Mirrors updateSourceConfig, including not allowing the plugin id to change:
+ * a config validated against one plugin's schema is meaningless to another.
+ */
+export async function updateSinkConfig(
+  db: Database,
+  sinkId: string,
+  label: string,
+  config: unknown,
+  reg: PluginRegistry = registry(),
+): Promise<void> {
+  const [existing] = await db.select().from(sinks).where(eq(sinks.id, sinkId));
+  if (!existing) throw new Error(`Unknown sink: ${sinkId}`);
+
+  const plugin = reg.requireSink(existing.pluginId);
+  const parsed = parseOrThrow(plugin.configSchema, config, plugin.label);
+
+  await db
+    .update(sinks)
+    .set({ label: label.trim() || existing.label, config: parsed as object })
+    .where(eq(sinks.id, sinkId));
+}
+
 export async function setSinkEnabled(
   db: Database,
   sinkId: string,
