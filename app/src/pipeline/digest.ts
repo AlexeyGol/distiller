@@ -202,15 +202,36 @@ export async function renderDigest(
   const now = deps.now ?? (() => new Date());
   const digest = await requireDigest(deps.db, digestId);
 
-  if (digest.status !== "approved") {
+  // "failed" is retryable. A render fails for reasons that get fixed outside
+  // this function - a missing API key, a sidecar that was not reachable, an
+  // upstream that was down - and forcing the user to rebuild the draft to try
+  // again would discard their curation along with it.
+  if (digest.status !== "approved" && digest.status !== "failed") {
     return {
       status: "skipped",
-      reason: `status is "${digest.status}", expected "approved"`,
+      reason: `status is "${digest.status}", expected "approved" or "failed"`,
     };
   }
 
-  const renderer = deps.registry.requireRenderer(digest.rendererId);
   const topic = await requireTopic(deps.db, digest.topicId);
+
+  // Take the renderer from the TOPIC, not from the digest row.
+  //
+  // The digest records which renderer produced it, which is right for history.
+  // But until it has actually rendered, the topic's current choice is the live
+  // intent: switching a topic to notebooklm-text and pressing Render should use
+  // notebooklm-text, not whatever was configured when the draft was built.
+  // Without this a draft silently renders with the old renderer and fails
+  // against a schema the user never chose.
+  const rendererId = topic.rendererId;
+  const renderer = deps.registry.requireRenderer(rendererId);
+
+  if (rendererId !== digest.rendererId) {
+    await deps.db
+      .update(digests)
+      .set({ rendererId })
+      .where(eq(digests.id, digestId));
+  }
 
   if (renderer.dailyBudget !== undefined) {
     const used = await rendersInWindow(

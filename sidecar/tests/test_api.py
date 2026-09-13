@@ -9,6 +9,8 @@ client.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
@@ -205,7 +207,11 @@ def test_add_sources(client: TestClient, fake: FakeClient) -> None:
     urls = ["https://example.com/a", "https://example.com/b"]
     response = client.post("/notebooks/nb-123/sources", json={"urls": urls})
     assert response.status_code == 200
-    assert response.json() == {"added": 2, "source_ids": ["src-1", "src-2"]}
+    assert response.json() == {
+        "added": 2,
+        "source_ids": ["src-1", "src-2"],
+        "failed": [],
+    }
     assert fake.sources.added == [("nb-123", urls[0]), ("nb-123", urls[1])]
 
 
@@ -309,6 +315,48 @@ def test_unknown_notebook_maps_to_404(client: TestClient, fake: FakeClient) -> N
     response = client.post("/notebooks/missing/ask", json={"question": "hi"})
     assert response.status_code == 404
     assert response.json() == {"error": "not_found", "detail": "no such notebook"}
+
+
+def test_add_sources_tolerates_one_bad_url(client, fake):
+    """One unfetchable link must not destroy the whole digest.
+
+    Real feeds carry URLs NotebookLM cannot ingest - paywalled, fetcher-blocked,
+    404 by render time. Failing the batch threw away every good source for one
+    bad one, and with thirty items at least one bad link is near certain.
+    """
+    good, bad = "https://ok.example/a", "https://bad.example/b"
+
+    async def add_url(_notebook_id, url):
+        if url == bad:
+            raise RuntimeError("Failed to add source: inaccessible")
+        return SimpleNamespace(id="src-good")
+
+    fake.sources.add_url = add_url
+
+    response = client.post(
+        "/notebooks/nb1/sources", json={"urls": [good, bad]}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["added"] == 1
+    assert body["source_ids"] == ["src-good"]
+    assert len(body["failed"]) == 1
+    assert body["failed"][0]["url"] == bad
+
+
+def test_add_sources_fails_only_when_nothing_lands(client, fake):
+    """A notebook with no sources would summarise nothing, so that IS an error."""
+
+    async def add_url(_notebook_id, _url):
+        raise RuntimeError("Failed to add source: inaccessible")
+
+    fake.sources.add_url = add_url
+
+    response = client.post("/notebooks/nb1/sources", json={"urls": ["https://x/1"]})
+
+    assert response.status_code == 502
+    assert response.json()["error"] == "upstream_unavailable"
 
 
 def test_upstream_timeout_maps_to_502(client: TestClient, fake: FakeClient) -> None:

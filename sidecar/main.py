@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 
 import errors
 from config import Settings, load_settings
-from errors import install_handlers, upstream
+from errors import SidecarError, install_handlers, upstream
 from logging_setup import configure_logging, request_id_var
 from nlm_client import (
     NotebookLMLike,
@@ -100,12 +100,47 @@ async def add_sources(
     client: NotebookLMLike = Depends(get_client),
 ) -> dict[str, Any]:
     source_ids: list[str] = []
+    failed: list[dict[str, str]] = []
+
     # WHY a loop: notebooklm-py exposes URL ingestion one source at a time.
-    with upstream():
-        for url in body.urls:
-            source = await client.sources.add_url(notebook_id, url)
+    #
+    # WHY per-URL error handling: one unfetchable link must not destroy the whole
+    # digest. Real feeds routinely carry URLs NotebookLM cannot ingest - paywalled
+    # articles, pages that block its fetcher, links that 404 by render time.
+    # Failing the batch threw away twenty-nine good sources for one bad one, and
+    # the chance of at least one bad link approaches certainty as a digest grows.
+    #
+    # Partial success is reported rather than hidden, and only an empty result is
+    # an error: a notebook with no sources would summarise nothing.
+    for url in body.urls:
+        try:
+            with upstream():
+                source = await client.sources.add_url(notebook_id, url)
             source_ids.append(source.id)
-    return {"added": len(source_ids), "source_ids": source_ids}
+        except SidecarError as exc:
+            # Quota and auth failures are NOT per-source problems: the next URL
+            # would fail identically and each attempt spends more of a budget
+            # that is already gone. Let those abort the batch.
+            if exc.error in (errors.QUOTA_EXHAUSTED, errors.AUTH_FAILED):
+                raise
+            logger.warning("source rejected: %s (%s)", url, exc.detail[:200])
+            failed.append({"url": url, "reason": exc.detail[:300]})
+
+    if not source_ids:
+        raise SidecarError(
+            status_code=502,
+            error=errors.UPSTREAM_UNAVAILABLE,
+            detail=(
+                "NotebookLM accepted none of the supplied sources: "
+                + "; ".join(f["reason"] for f in failed)[:400]
+            ),
+        )
+
+    return {
+        "added": len(source_ids),
+        "source_ids": source_ids,
+        "failed": failed,
+    }
 
 
 @app.post("/notebooks/{notebook_id}/ask")

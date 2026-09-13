@@ -691,6 +691,94 @@ describe("pipeline", () => {
       expect(result.reason).toContain('status is "draft"');
     });
 
+    it("uses the topic's CURRENT renderer, not the one stored on the draft", async () => {
+      // Switching a topic's renderer and pressing Render must use the new one.
+      // Otherwise the draft silently renders with the old renderer and fails
+      // against a config schema the user never chose - which is exactly what
+      // happened when the default moved to notebooklm-text.
+      const { topic, digestId } = await approvedDigest("old-renderer");
+
+      await h.db
+        .update(topics)
+        .set({ rendererId: "new-renderer" })
+        .where(eq(topics.id, topic.id));
+
+      const oldRender = vi.fn();
+      const newRender = vi
+        .fn()
+        .mockResolvedValue({ summary: "new", artifacts: [] });
+      const registry = new PluginRegistry()
+        .registerRenderer(fakeRenderer({ id: "old-renderer", render: oldRender }))
+        .registerRenderer(fakeRenderer({ id: "new-renderer", render: newRender }));
+
+      const result = await renderDigest({ db: h.db, registry }, digestId);
+
+      expect(result.status).toBe("ready");
+      expect(oldRender).not.toHaveBeenCalled();
+      expect(newRender).toHaveBeenCalled();
+
+      // And the digest records what actually rendered it, for history.
+      const [row] = await h.db
+        .select()
+        .from(digests)
+        .where(eq(digests.id, digestId));
+      expect(row!.rendererId).toBe("new-renderer");
+    });
+
+    it("retries a FAILED digest without losing the curation", async () => {
+      // Renders fail for reasons fixed elsewhere - a missing key, an unreachable
+      // sidecar. Forcing a rebuild to retry would discard the user's selection.
+      const { digestId } = await approvedDigest();
+
+      const render = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("sidecar unreachable"))
+        .mockResolvedValueOnce({ summary: "second time", artifacts: [] });
+      const registry = new PluginRegistry().registerRenderer(
+        fakeRenderer({ render }),
+      );
+      const deps = { db: h.db, registry };
+
+      const first = await renderDigest(deps, digestId);
+      expect(first.status).toBe("failed");
+
+      const second = await renderDigest(deps, digestId);
+      expect(second.status).toBe("ready");
+
+      const [row] = await h.db
+        .select()
+        .from(digests)
+        .where(eq(digests.id, digestId));
+      expect(row!.summary).toBe("second time");
+      expect(row!.error).toBeNull();
+    });
+
+    it("still refuses a draft that was never approved", async () => {
+      // The curation gate must survive the retry change.
+      const topic = await seedTopic({ curationMode: "manual" });
+      const source = await seedSource();
+      await h.db
+        .insert(topicSources)
+        .values({ topicId: topic.id, sourceId: source.id });
+      await h.db.insert(items).values({
+        sourceId: source.id,
+        externalId: "a",
+        url: "https://e.com/a",
+        title: "A",
+        publishedAt: new Date(),
+      });
+      const { digestId } = await buildDraft(
+        { db: h.db, registry: new PluginRegistry() },
+        topic.id,
+      ).then((r) => ({ digestId: r.digestId! }));
+
+      const registry = new PluginRegistry().registerRenderer(fakeRenderer());
+      const result = await renderDigest({ db: h.db, registry }, digestId);
+
+      expect(result.status).toBe("skipped");
+      expect(result.reason).toContain('status is "draft"');
+    });
+
     it("passes only included items to the renderer", async () => {
       const topic = await seedTopic({ curationMode: "auto" });
       const source = await seedSource();

@@ -386,6 +386,117 @@ describe("notebookTitle", () => {
   });
 });
 
+describe("notebook lifecycle", () => {
+  // One digest should mean one notebook. Before cleanup existed, every failed
+  // attempt abandoned the notebook it had created: four debugging runs left
+  // four identically-titled orphans against an account capped at 500.
+  it("deletes the notebook when adding sources fails", async () => {
+    const h = harness([
+      jsonResponse(201, { notebook_id: "nb-orphan" }),
+      jsonResponse(502, { error: "upstream_unavailable", detail: "no sources" }),
+      jsonResponse(200, {}), // the DELETE
+    ]);
+
+    await createNotebookLmTextRenderer(h.deps)
+      .render(config, input)
+      .catch(() => undefined);
+
+    expect(h.calls).toContain(
+      "DELETE http://sidecar:8000/notebooks/nb-orphan",
+    );
+  });
+
+  it("deletes the notebook when the summary comes back empty", async () => {
+    const h = harness([
+      jsonResponse(201, { notebook_id: "nb-empty" }),
+      jsonResponse(200, {}),
+      jsonResponse(200, { answer: "   " }),
+      jsonResponse(200, {}), // the DELETE
+    ]);
+
+    await createNotebookLmTextRenderer(h.deps)
+      .render(config, input)
+      .catch(() => undefined);
+
+    expect(h.calls).toContain("DELETE http://sidecar:8000/notebooks/nb-empty");
+  });
+
+  it("KEEPS the notebook on success", async () => {
+    const h = harness([
+      jsonResponse(201, { notebook_id: "nb-keep" }),
+      jsonResponse(200, {}),
+      jsonResponse(200, { answer: "Digest." }),
+    ]);
+
+    await createNotebookLmTextRenderer(h.deps).render(config, input);
+
+    expect(h.calls.some((c) => c.startsWith("DELETE"))).toBe(false);
+  });
+
+  it("reports the ORIGINAL error even when cleanup also fails", async () => {
+    // Replacing the real cause with "cleanup failed" would send you looking in
+    // entirely the wrong place.
+    const h = harness([
+      jsonResponse(201, { notebook_id: "nb-x" }),
+      jsonResponse(502, { error: "upstream_unavailable", detail: "real cause" }),
+      jsonResponse(500, { error: "delete blew up" }),
+    ]);
+
+    const error = await createNotebookLmTextRenderer(h.deps)
+      .render(config, input)
+      .catch((e: unknown) => e);
+
+    expect((error as Error).message).toContain("add sources");
+    expect((error as Error).message).not.toContain("discard");
+  });
+});
+
+describe("sidecar response contract", () => {
+  // These two halves were built to briefs that disagreed: the sidecar returns
+  // notebook_id, the renderer originally read id. Both unit suites passed
+  // because each mocked its own assumption. The mismatch only surfaced on the
+  // first real HTTP call between them, as "created a notebook without
+  // returning an id". These tests pin the field name so it cannot drift again.
+  it("accepts notebook_id, which is what the sidecar actually sends", async () => {
+    const h = harness([
+      jsonResponse(201, { notebook_id: "nb-real" }),
+      jsonResponse(200, {}),
+      jsonResponse(200, { answer: "Digest." }),
+    ]);
+
+    const output = await createNotebookLmTextRenderer(h.deps).render(
+      config,
+      input,
+    );
+
+    expect(output.summary).toBe("Digest.");
+    expect(h.calls[1]).toContain("/notebooks/nb-real/sources");
+  });
+
+  it("accepts id too, so a different adapter can be dropped in", async () => {
+    const h = harness([
+      jsonResponse(201, { id: "nb-alt" }),
+      jsonResponse(200, {}),
+      jsonResponse(200, { answer: "Digest." }),
+    ]);
+
+    await createNotebookLmTextRenderer(h.deps).render(config, input);
+    expect(h.calls[1]).toContain("/notebooks/nb-alt/sources");
+  });
+
+  it("names both fields when neither is present", async () => {
+    const h = harness([jsonResponse(201, { unexpected: "shape" })]);
+
+    const error = await createNotebookLmTextRenderer(h.deps)
+      .render(config, input)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TransientError);
+    expect((error as Error).message).toContain("notebook_id");
+    expect((error as Error).message).toContain("unexpected");
+  });
+});
+
 describe("notebooklm-text (summary only)", () => {
   it("stops after asking: it never calls the audio endpoints", async () => {
     // This is the entire reason the plugin exists. An audio overview is one of

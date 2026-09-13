@@ -36,8 +36,10 @@ import { QuotaExhaustedError, TransientError } from "../core/types.js";
 export const notebookLmConfigSchema = z.object({
   /** Sidecar root. Defaults to DEFAULT_BASE_URL when omitted. */
   baseUrl: z.string().url().optional(),
-  /** Per-request timeout. Does not bound the audio poll; maxPollMs does. */
+  /** Per-request timeout for create/sources. Does not bound the audio poll. */
   timeoutMs: z.number().int().positive().optional(),
+  /** Budget for the summary generation call, which waits on the model. */
+  askTimeoutMs: z.number().int().positive().optional(),
   pollIntervalMs: z.number().int().positive().optional(),
   maxPollMs: z.number().int().positive().optional(),
   /** Extra steering passed to NotebookLM's audio overview generator. */
@@ -65,7 +67,22 @@ export function defaultBaseUrl(): string {
 
 /** @deprecated Prefer defaultBaseUrl(); kept so existing imports still resolve. */
 export const DEFAULT_BASE_URL = "http://sidecar:8000";
-export const DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * Transport timeout for the quick calls. 30s was too tight even for these:
+ * adding four sources measured ~20s, because the sidecar has to upload each URL
+ * to NotebookLM and wait for it to be ingested, and that scales with item count.
+ */
+export const DEFAULT_TIMEOUT_MS = 180_000;
+
+/**
+ * Separate, longer budget for the calls that wait on GENERATION rather than
+ * transport. Asking NotebookLM a question runs a streaming model call; the
+ * request simply stays open while it thinks. Sharing one timeout with
+ * create/sources meant aborting work that was still in progress and reporting
+ * it as "failed to reach sidecar" - a transport error message for a
+ * patience problem, which sends you looking in the wrong place.
+ */
+export const DEFAULT_ASK_TIMEOUT_MS = 600_000;
 export const DEFAULT_POLL_INTERVAL_MS = 5_000;
 /** Audio overviews routinely take several minutes to generate. */
 export const DEFAULT_MAX_POLL_MS = 15 * 60_000;
@@ -90,6 +107,7 @@ export const DEFAULT_QUESTION =
 interface ResolvedConfig {
   baseUrl: string;
   timeoutMs: number;
+  askTimeoutMs: number;
   pollIntervalMs: number;
   maxPollMs: number;
   instructions?: string;
@@ -99,6 +117,7 @@ function resolveConfig(config: NotebookLmConfig): ResolvedConfig {
   return {
     baseUrl: (config.baseUrl ?? defaultBaseUrl()).replace(/\/+$/, ""),
     timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    askTimeoutMs: config.askTimeoutMs ?? DEFAULT_ASK_TIMEOUT_MS,
     pollIntervalMs: config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     maxPollMs: config.maxPollMs ?? DEFAULT_MAX_POLL_MS,
     instructions: config.instructions,
@@ -154,12 +173,14 @@ async function call(
   path: string,
   init: RequestInit,
   context: string,
+  /** Overrides the default for calls that wait on generation, not transport. */
+  timeoutMs: number = resolved.timeoutMs,
 ): Promise<SidecarResponse> {
   let response: Response;
   try {
     response = await deps.fetch(`${resolved.baseUrl}${path}`, {
       ...init,
-      signal: AbortSignal.timeout(resolved.timeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     // A dead or restarting sidecar is exactly the case worth retrying.
@@ -339,35 +360,84 @@ async function createAndSummarise(
     jsonInit({ title: notebookTitle(input), jobKey: input.jobKey }),
     "create notebook",
   );
-  const { id } = (await created.response.json()) as { id?: string };
+  // The sidecar returns `notebook_id`, matching its own `/notebooks/{notebook_id}`
+  // path. `id` is accepted as a fallback so a different adapter - the official
+  // Gemini Notebook API, say - can be dropped in without editing this.
+  //
+  // These two halves were built to briefs that disagreed on this field name.
+  // Both sides' unit tests passed, because each mocked its own assumption; the
+  // mismatch only appeared the first time real HTTP crossed between them. Hence
+  // the contract test alongside this.
+  const payload = (await created.response.json()) as {
+    notebook_id?: string;
+    id?: string;
+  };
+  const id = payload.notebook_id ?? payload.id;
   if (!id) {
     throw new TransientError(
-      "notebooklm: sidecar created a notebook without returning an id",
+      "notebooklm: sidecar created a notebook but returned neither " +
+        `notebook_id nor id (got: ${JSON.stringify(payload).slice(0, 120)})`,
     );
   }
 
-  await call(
-    deps,
-    resolved,
-    `/notebooks/${id}/sources`,
-    jsonInit({ urls: input.items.map((item) => item.url) }),
-    "add sources",
-  );
+  // Everything after the notebook exists is wrapped, so a failure cleans up
+  // after itself. Without this each failed attempt abandoned a notebook: four
+  // debugging runs left four identically-titled orphans, and NotebookLM caps
+  // an account at 500. One digest should mean one notebook, which means the
+  // renderer has to own the lifecycle of what it creates, not just create it.
+  try {
+    await call(
+      deps,
+      resolved,
+      `/notebooks/${id}/sources`,
+      jsonInit({ urls: input.items.map((item) => item.url) }),
+      "add sources",
+    );
 
-  const asked = await call(
+    const asked = await call(
     deps,
     resolved,
     `/notebooks/${id}/ask`,
     jsonInit({ question: resolved.instructions ?? DEFAULT_QUESTION }),
     "ask for summary",
+    resolved.askTimeoutMs,
   );
-  const { answer } = (await asked.response.json()) as { answer?: string };
-  const summary = (answer ?? "").trim();
-  if (summary === "") {
-    throw new TransientError("notebooklm: sidecar returned an empty answer");
-  }
+    const { answer } = (await asked.response.json()) as { answer?: string };
+    const summary = (answer ?? "").trim();
+    if (summary === "") {
+      throw new TransientError("notebooklm: sidecar returned an empty answer");
+    }
 
-  return { notebookId: id, summary };
+    return { notebookId: id, summary };
+  } catch (error) {
+    await discardNotebook(deps, resolved, id);
+    throw error;
+  }
+}
+
+/**
+ * Best-effort delete of a notebook we created but could not finish with.
+ *
+ * Deliberately swallows its own failure: the caller is already throwing the
+ * error that actually matters, and replacing it with "cleanup failed" would
+ * hide the real cause. A surviving orphan is findable by its readable title.
+ */
+async function discardNotebook(
+  deps: NotebookLmDeps,
+  resolved: ResolvedConfig,
+  notebookId: string,
+): Promise<void> {
+  try {
+    await call(
+      deps,
+      resolved,
+      `/notebooks/${notebookId}`,
+      { method: "DELETE" },
+      "discard notebook",
+    );
+  } catch {
+    // Intentionally ignored - see above.
+  }
 }
 
 async function sidecarHealth(
