@@ -92,6 +92,9 @@ error. See [AGENTS.md](./AGENTS.md) for the full detail and the exact symptoms.
 
 AI coding agents should read [AGENTS.md](./AGENTS.md) before running anything.
 
+Known gaps, planned work and decisions already settled are in
+[TODO.md](./TODO.md).
+
 ## Design decisions worth knowing
 
 - **Dedup is a database constraint**, not a SELECT-then-INSERT, which would
