@@ -21,14 +21,20 @@ nlm_auth/
 master_token.json
 
 # testing
-/coverage
+coverage/
 
 # next.js
-/.next/
-/out/
+#
+# NO leading slash. A leading slash anchors the pattern to the repo root, and
+# this is a monorepo: the app lives at app/, so "/.next/" never matched
+# app/.next/ and 164 build artifacts were being committed - including a 24 MB
+# webpack cache pack. Same trap that let app/node_modules/ through.
+.next/
+out/
 
 # production
-/build
+build/
+dist/
 
 # misc
 .DS_Store
