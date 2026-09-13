@@ -1,3 +1,8 @@
+// MUST be the first import: ES imports are evaluated before any statement, so
+// a loadEnv() call here would run too late for anything reading process.env at
+// module scope. See src/env-init.ts.
+import "../env-init.js";
+
 import { db } from "../db/client.js";
 import { registry } from "../plugins.js";
 import { pollAllSources } from "../worker/jobs.js";

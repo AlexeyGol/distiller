@@ -1,3 +1,8 @@
+// MUST be the first import: ES imports are evaluated before any statement, so
+// a loadEnv() call here would run too late for anything reading process.env at
+// module scope. See src/env-init.ts.
+import "../env-init.js";
+
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
