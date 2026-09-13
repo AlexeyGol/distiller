@@ -134,6 +134,37 @@ notebooklm login --master-token --account you@gmail.com --cdp-url http://localho
 notebooklm login --master-token --account you@gmail.com --oauth-token <TOKEN>
 ```
 
+#### Where `<TOKEN>` comes from
+
+The browser capture is not doing anything exotic: it opens
+`https://accounts.google.com/EmbeddedSetup`, waits for you to sign in, and reads
+the `oauth_token` **cookie** Google sets on that page. You can do the same by
+hand, in your own browser, with no automation involved:
+
+1. Open `https://accounts.google.com/EmbeddedSetup` and sign in.
+2. DevTools -> Application -> Cookies -> `https://accounts.google.com`.
+3. Copy the value of the `oauth_token` cookie.
+4. Pass it to `--oauth-token` straight away.
+
+It is **single-use and short-lived**, so run the command promptly; if it fails,
+sign in again to get a fresh one. It is exchanged once for the durable
+`master_token`, after which it is spent.
+
+#### If Google says "This browser or app may not be secure"
+
+Google actively blocks automated browsers, so the default Playwright path can
+fail for this reason alone - the tool's own error message says so. Two ways
+through, both of which use a browser Google already trusts:
+
+```bash
+# Launch YOUR Chrome with a debugging port, sign in there, let the tool attach
+google-chrome --remote-debugging-port=9222
+notebooklm login --master-token --account you@gmail.com --cdp-url http://localhost:9222
+```
+
+or just take the cookie by hand as above. The manual route is the most reliable
+of the three, because nothing about it looks automated to Google.
+
 Option 1 skips Playwright entirely but yields cookies that expire, so you
 re-authenticate periodically. `--master-token` is what buys unattended renewal -
 the convenience and the credential's power are the same thing.
