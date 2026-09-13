@@ -21,6 +21,7 @@ import {
   signSession,
 } from "../lib/auth.js";
 import { describeSchema, valuesFromFormData } from "../lib/schema-form.js";
+import { importConfig, type ConfigBundle } from "../lib/config-transfer.js";
 import type { ActionState } from "../lib/action-state.js";
 import {
   addKeyword,
@@ -566,4 +567,46 @@ export async function setPluginEnabledAction(form: FormData): Promise<void> {
   );
   revalidatePath("/settings");
   revalidatePath("/sources");
+}
+
+/**
+ * Import a configuration bundle uploaded through the UI.
+ *
+ * Warnings are surfaced rather than swallowed: a skipped source or a credential
+ * that still needs filling in is the actionable part of an import, and an
+ * "imported successfully" that hid three skipped sources would be a lie.
+ */
+export async function importConfigAction(
+  _prev: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  const file = form.get("bundle");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, message: "Choose a config JSON file first." };
+  }
+
+  try {
+    const bundle = JSON.parse(await file.text()) as ConfigBundle;
+    const result = await importConfig(db(), bundle);
+
+    const summary =
+      `Sources +${result.sources.created}/~${result.sources.updated}, ` +
+      `sinks +${result.sinks.created}/~${result.sinks.updated}, ` +
+      `topics +${result.topics.created}/~${result.topics.updated}.`;
+
+    if (result.warnings.length > 0) {
+      return {
+        ok: true,
+        message: `${summary} ${result.warnings.length} warning(s): ${result.warnings.join("; ")}`,
+      };
+    }
+    return { ok: true, message: summary };
+  } catch (cause) {
+    return { ok: false, message: describeError(cause) };
+  } finally {
+    revalidatePath("/settings");
+    revalidatePath("/sources");
+    revalidatePath("/topics");
+    revalidatePath("/");
+  }
 }

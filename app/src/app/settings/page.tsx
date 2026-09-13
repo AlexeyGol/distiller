@@ -2,7 +2,9 @@ import { db } from "../../db/client.js";
 import { loadPluginToggles, loadSettings } from "../../lib/mutations.js";
 import { pluginCatalog, type PluginKind } from "../../lib/catalog.js";
 import { ActionForm } from "../../components/ActionForm.js";
-import { saveSettingsAction, setPluginEnabledAction } from "../actions.js";
+import { saveSettingsAction, setPluginEnabledAction,
+  importConfigAction,
+} from "../actions.js";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +84,57 @@ export default async function SettingsPage() {
             />
           </div>
         </ActionForm>
+      </section>
+
+      <section className="card">
+        <h2>Backup and transfer</h2>
+        <p className="muted" style={{ marginTop: -8 }}>
+          Topics, sources, sinks, keywords and settings as one JSON file. It
+          contains no database ids, so it imports onto a different install -
+          useful for moving to a server, or for keeping your setup in git.
+          Rendered audio and past digests are not included; those are what
+          <code> pg_dump </code> is for.
+        </p>
+
+        <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+          <a className="btn" href="/api/config/export" download>
+            Download config
+          </a>
+          <a
+            className="btn"
+            href="/api/config/export?secrets=1"
+            download
+            title="Includes API keys and bot tokens in plain text"
+          >
+            Download with secrets
+          </a>
+        </div>
+
+        <p className="muted" style={{ marginTop: 12 }}>
+          <strong>Download config</strong> redacts every API key and bot token,
+          so it is safe to commit or share. <strong>With secrets</strong> is the
+          restorable backup - treat that file like a password.
+        </p>
+
+        <div style={{ marginTop: 20 }}>
+          <ActionForm action={importConfigAction} submitLabel="Import">
+            <div className="field">
+              <label htmlFor="bundle">Import a config file</label>
+              <input
+                id="bundle"
+                name="bundle"
+                type="file"
+                accept="application/json,.json"
+                required
+              />
+            </div>
+          </ActionForm>
+          <p className="muted" style={{ marginTop: 8 }}>
+            Importing adds and updates; it never deletes anything the file does
+            not mention. Redacted fields keep whatever value is already stored,
+            so a shared config will not wipe your keys.
+          </p>
+        </div>
       </section>
 
       {KINDS.map(({ kind, title, blurb }) => (
