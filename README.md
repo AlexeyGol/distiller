@@ -22,9 +22,19 @@ adding one file and listing it in its directory index - no UI changes.
 
 | Seam | Built in | Directory |
 | --- | --- | --- |
-| Source | `rss`, `youtube-channel`, `youtube-search` | `app/src/core/sources/` |
-| Renderer | `llm-text`, `notebooklm` | `app/src/renderers/` |
+| Source | `rss`, `reddit`, `hackernews`, `youtube-channel`, `youtube-search` | `app/src/core/sources/` |
+| Renderer | `llm-text`, `notebooklm-text`, `notebooklm` | `app/src/renderers/` |
 | Sink | `telegram` | `app/src/sinks/` |
+
+The `rss` source covers far more than its name suggests. TLDR
+(`tldr.tech/api/rss/{tech,ai,devops}`), Lobsters, Mastodon hashtags, GitHub
+releases, Google News queries and arXiv are all plain feeds - paste the URL, no
+plugin required. See [TODO.md](./TODO.md) for the verified list.
+
+Renderers are ordered cheapest-first. `notebooklm-text` exists because an audio
+overview costs one of 20 per day and takes minutes, while asking NotebookLM a
+question costs one of roughly 500 and returns in seconds - so a source-grounded
+summary no longer requires generating a podcast you did not want.
 
 Plugins toggle at two levels: the **type** (hides from the catalog, pauses all
 instances, keeps config) and the **instance** (pause one feed or destination).
@@ -73,7 +83,7 @@ free tier is ample at this volume.
 ## Tests
 
 ```bash
-cd app     && npx vitest run      # 203 tests
+cd app     && npx vitest run       # 402 tests
 cd app     && npx tsc --noEmit
 cd sidecar && python3 -m pytest -q # 27 tests
 ```
