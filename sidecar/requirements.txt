@@ -5,4 +5,9 @@ uvicorn==0.52.4
 pydantic==2.13.5
 httpx==0.28.1
 pytest==9.1.1
+# No extras on purpose. The sidecar only mints web cookies from an existing
+# master token, so it needs neither [headless] (token bootstrap) nor [browser]
+# (Playwright, for the one-time oauth_token capture). Those belong on the
+# workstation that runs `notebooklm login`, and pulling Playwright in here would
+# add a browser download to every image build for nothing.
 notebooklm-py==0.8.2

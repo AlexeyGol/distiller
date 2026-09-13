@@ -155,6 +155,25 @@ chmod 700 nlm_auth
 chmod 600 nlm_auth/profiles/default/*
 ```
 
+Generating those files happens once, on a machine with a browser, **not here**.
+Two install traps are worth knowing before you start, because the error message
+for each is easy to misread:
+
+```bash
+pip install "notebooklm-py[headless,browser]"   # BOTH extras
+playwright install chromium                      # a separate download
+notebooklm login --master-token --account you@gmail.com
+```
+
+`[headless]` mints the durable master token; `[browser]` captures the one-time
+oauth_token and pulls Playwright, whose browser binaries pip does not fetch. If
+you already hold an oauth_token, or the machine cannot run a browser, drop
+`[browser]` and pass `--oauth-token <TOKEN>` instead.
+
+The **sidecar** needs neither extra. It only mints web cookies from an existing
+master token, so `requirements.txt` pins the bare package; the login CLI and its
+browser live on your workstation.
+
 Mounted **read-only** into the sidecar. `nlm_auth/` is gitignored and nothing
 secret is ever baked into an image layer - the images contain only source.
 

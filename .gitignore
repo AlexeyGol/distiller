@@ -5,11 +5,21 @@ node_modules/
 /.pnp
 .pnp.js
 
-# python (sidecar)
+# python
+#
+# Virtualenvs, by every name this project has actually used. There is no
+# pattern for "a directory containing pyvenv.cfg", so these have to be listed:
+# the NotebookLM login instructions create `nlm-env`, and it arrives with
+# Playwright inside it at ~220 MB.
 .venv/
+venv/
+nlm-env/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Playwright browser binaries, wherever a venv puts them
+.cache/ms-playwright/
 
 # runtime artifacts - rendered mp3s live here, never in git
 data/

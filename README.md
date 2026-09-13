@@ -69,9 +69,27 @@ browser:
 
 ```bash
 python3 -m venv nlm-env && source nlm-env/bin/activate
-pip install "notebooklm-py[android]"
+
+# BOTH extras are required, and the error message if you miss one is easy to
+# misread. [headless] mints the durable master token; [browser] is what
+# captures the one-time oauth_token, and it pulls Playwright - whose browser
+# binaries are a SEPARATE download that pip does not do for you.
+pip install "notebooklm-py[headless,browser]"
+playwright install chromium
+
 notebooklm login --master-token --account you@gmail.com
 ```
+
+If you already hold an `oauth_token`, or cannot run a browser on that machine,
+skip `[browser]` and Playwright entirely:
+
+```bash
+pip install "notebooklm-py[headless]"
+notebooklm login --master-token --account you@gmail.com --oauth-token <TOKEN>
+```
+
+On macOS 15 or wherever the bundled Chromium crashes, add `--browser chrome` to
+use system Google Chrome instead.
 
 Copy the resulting profile directory to `./nlm_auth/profiles/default/`. It must
 contain **both** `storage_state.json` and `master_token.json` - the client loads
@@ -94,7 +112,7 @@ free tier is ample at this volume.
 ## Tests
 
 ```bash
-cd app     && npx vitest run       # 402 tests
+cd app     && npx vitest run       # 459 tests
 cd app     && npx tsc --noEmit
 cd sidecar && python3 -m pytest -q # 27 tests
 ```
