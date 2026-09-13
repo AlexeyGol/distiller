@@ -147,7 +147,112 @@ storage layer without silently breaking longer podcasts.
 
 ---
 
-## 5. Code style
+## 5. Lessons that cost real time here
+
+Every item below was learned by losing an hour to it. They are recorded so the
+next person does not pay again.
+
+### Verify against the real thing, not the fixture
+
+This is the single highest-value rule in this file. Every one of the following
+passed its tests and was still wrong:
+
+| Bug | What the tests said | What reality said |
+| --- | --- | --- |
+| `itemCount` always 0 | 323 tests green | the SQL compared `items.source_id` to `items.id` |
+| `notebook_id` vs `id` | both suites green | the two halves never agreed on the field name |
+| 30s render timeout | green | generation takes minutes, not seconds |
+| one bad URL | green | it destroyed the whole digest |
+| orphaned notebooks | green | four failed runs left four notebooks behind |
+
+A query that returns a plausible value is not a query that returns a correct
+one. Zero is plausible for a fresh install, which is exactly how the first one
+survived. Assert values against known data, and exercise integrations against
+the live service at least once before declaring them done.
+
+### One contract test per integration boundary
+
+The `notebook_id` / `id` mismatch is the case mocks structurally cannot catch:
+each side mocked its own assumption, both were internally consistent, and the
+disagreement only existed in the space between them. Wherever two components
+agree on a wire format, one test must pin that format from the consumer's side.
+
+### Transport timeouts and generation budgets are different things
+
+A request that waits on a model is not slow, it is thinking. Sharing one
+timeout with quick calls meant aborting work in progress and reporting it as
+"failed to reach sidecar" - a transport error message for a patience problem,
+which sends you looking in entirely the wrong place. See `DEFAULT_TIMEOUT_MS`
+versus `DEFAULT_ASK_TIMEOUT_MS`.
+
+### If you create an external resource, own its lifecycle
+
+Every failed render used to abandon the notebook it had created. Four debugging
+runs left four orphans against an account capped at 500. Create-and-forget is
+only acceptable when nothing downstream is finite.
+
+### Machine identifiers are not human-facing names
+
+A `jobKey` is correct for a database and wrong for a title or a filename. The
+first version produced `AI News [uuid:202609130049]` and
+`f8f9161c-...:202609130049.mp3` - the latter containing a colon, which is an
+illegal filename character on Windows and is the name Telegram displays in
+chat. Keys and display names travel separately.
+
+### Do not run destructive tests against the dev database
+
+`TRUNCATE ... CASCADE` during a config round-trip test took out 65 ingested
+items and a digest, because `topics -> digests` and `sources -> items` cascade.
+The pglite harness exists precisely so destructive tests need no real database.
+Point `DATABASE_URL` at a scratch database or use `createTestDb()`.
+
+### Be a polite client of external services
+
+Aggressive probing during development got this machine's IP throttled by both
+Reddit and YouTube within minutes. Reddit allows roughly one request per minute
+per feed and answers with 403 as readily as 429; YouTube starts returning 404
+for valid channel IDs. Normal polling never approaches these limits - only
+debugging loops do. Space out manual polls.
+
+### `git add -A` swept junk into commits twice
+
+`app/.next` (164 files) and `app/nlm-env` (2558 files, 219 MB) both landed in
+commits because `.gitignore` did not anticipate them. **A leading slash anchors
+a pattern to the repo root**, which does nothing in a monorepo: `/node_modules`
+never matched `app/node_modules`. Patterns here are unanchored for that reason.
+
+Look at what you are staging. `git status --porcelain | wc -l` before a commit
+costs nothing and would have caught both.
+
+---
+
+## 6. Docker and compose specifics
+
+Four things about this stack that are not obvious and have each bitten:
+
+**Container DNS is captured at creation time.** Change networks or routers and
+existing containers keep resolving against the old gateway. musl (alpine)
+queries every nameserver in parallel and survives it; glibc (these debian
+images) tries them sequentially and fails with `EAI_AGAIN`. The symptom is that
+`docker run alpine` works while every app container fails, which makes the
+network look healthy. Hence the explicit `dns:` entries.
+
+**The sidecar runs as the host uid.** Its credentials are mode 700/600 owned by
+the host user, which is correct for a Google master token. Running as the image's
+own uid 10001 meant it could not read its own mount.
+
+**The sidecar port is published on 127.0.0.1 only.** It has no auth of its own
+and drives a real Google account. It is published at all only so `npm run dev`
+on the host can reach it; inside compose, services use `http://sidecar:8000`.
+
+**Migrations run as their own service.** `app` and `worker` wait on
+`service_completed_successfully`, so a fresh host needs no manual step. Without
+it the stack starts happily against an empty database and fails at the first
+query, far from the cause.
+
+---
+
+## 7. Code style
 
 - **Plain dashes `-` only. Never em dashes.** In code, comments, docs and commit
   messages.
@@ -158,7 +263,7 @@ storage layer without silently breaking longer podcasts.
 
 ---
 
-## 6. Working boundaries
+## 8. Working boundaries
 
 When several agents work in parallel, each owns a directory. Do not edit files
 outside your assignment. If you need a change in someone else's file, report it
@@ -170,7 +275,7 @@ explicitly the task: `app/src/core/types.ts`, `app/src/core/registry.ts`,
 
 ---
 
-## 7. Secrets
+## 9. Secrets
 
 The NotebookLM master token is a real credential for a real Google account.
 `nlm_auth/`, `data/`, `.env` and `*.token.json` are gitignored, and nothing secret

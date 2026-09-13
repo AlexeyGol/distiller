@@ -6,6 +6,9 @@ Each entry says **why** it matters, because a bare task list loses the reasoning
 within a week. The "Decided against" section exists so settled questions stay
 settled.
 
+How to work in this repo is in [AGENTS.md](./AGENTS.md); section 5 there records
+the mistakes that have already been paid for once.
+
 ---
 
 ## Next up
@@ -72,7 +75,7 @@ Built but **not proven end to end**. Each is a known unknown, not a suspicion.
 | Thing | State |
 | --- | --- |
 | ~~Dockerfiles and the full stack~~ | **Cleared.** Both images build; all four services come up healthy from a wiped volume, migrations run unattended. Doing this found two real bugs (no migration step, and a worker health probe that would have killed a healthy worker in a loop). |
-| NotebookLM renderer against a real token | Never run. Sidecar unit tests use a fake client; the real `ask` / `audio` round trip is untested. |
+| ~~NotebookLM text renderer~~ | **Cleared.** Rendered against a real account: ready in 57s with a source-cited summary. Found five bugs no mock could - see AGENTS.md section 5. The **audio** path is still unexercised. |
 | Telegram sink | Never sent a real message. Contract verified against docs, not against Telegram. |
 | `llm-text` against a real provider | Never called Gemini/Anthropic/Ollama for real. |
 | Audio player with a real mp3 | No mp3 has ever been produced, so range requests and seeking are untested with real bytes. |
