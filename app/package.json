@@ -14,7 +14,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "poll": "tsx src/scripts/poll-once.ts"
+    "poll": "tsx src/scripts/poll-once.ts",
+    "config:export": "tsx src/scripts/config-export.ts",
+    "config:import": "tsx src/scripts/config-import.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",

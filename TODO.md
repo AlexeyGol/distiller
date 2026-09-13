@@ -71,7 +71,7 @@ Built but **not proven end to end**. Each is a known unknown, not a suspicion.
 
 | Thing | State |
 | --- | --- |
-| `app/Dockerfile`, `worker` container | Written, **never built or run**. Only `db` has been exercised under compose. |
+| ~~Dockerfiles and the full stack~~ | **Cleared.** Both images build; all four services come up healthy from a wiped volume, migrations run unattended. Doing this found two real bugs (no migration step, and a worker health probe that would have killed a healthy worker in a loop). |
 | NotebookLM renderer against a real token | Never run. Sidecar unit tests use a fake client; the real `ask` / `audio` round trip is untested. |
 | Telegram sink | Never sent a real message. Contract verified against docs, not against Telegram. |
 | `llm-text` against a real provider | Never called Gemini/Anthropic/Ollama for real. |
@@ -121,8 +121,9 @@ cut noise more cheaply than better summarisation.
 - **Digest deletion** - no way to remove a bad digest from the UI.
 - **Bulk curation** - no "select all" / "select none" on the curation screen.
   Painful once a draft has 30+ items.
-- **Source import/export** - moving a setup between machines means retyping
-  every source. An OPML import would cover the RSS ones for free.
+- **OPML import** - config export/import now exists (`npm run config:export` /
+  `config:import`), so moving a setup is solved. OPML would additionally let you
+  bring an existing feed reader's subscriptions in.
 - **Sidecar orphan cleanup** - a retry after a mid-render crash can leave an
   orphaned NotebookLM notebook. The readable title makes it findable; nothing
   cleans it up automatically, and the 500-notebook cap is real.

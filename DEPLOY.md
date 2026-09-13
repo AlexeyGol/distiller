@@ -252,6 +252,40 @@ tar czf data-$(date +%F).tar.gz data/
 Also back up `.env` and `nlm_auth/` somewhere appropriate for credentials. They
 are the only pieces that cannot be regenerated from git.
 
+### Configuration export - the third thing worth backing up
+
+A `pg_dump` is machine-to-machine and opaque. For the configuration itself -
+topics, sources, sinks, keywords, schedules, settings - there is a readable,
+diffable, portable JSON bundle:
+
+```bash
+# safe to commit or share: credential fields are redacted
+docker compose exec -T app node_modules/.bin/tsx src/scripts/config-export.ts > config.json
+
+# restorable backup: real keys included, written 0600
+docker compose exec -T app node_modules/.bin/tsx src/scripts/config-export.ts --with-secrets --out config.backup.json
+```
+
+Restore, or seed a second install:
+
+```bash
+docker compose exec -T app node_modules/.bin/tsx src/scripts/config-import.ts config.backup.json
+```
+
+Two properties worth knowing:
+
+- **Redacted by default.** Sharing a setup, committing it or pasting it into an
+  issue is the common case and must not leak a bot token. `--with-secrets` is
+  the deliberate one, and the file it writes is `0600`.
+- **A redacted bundle still imports usefully.** Where a field reads
+  `__REDACTED__`, any existing value is kept, so re-importing a shareable export
+  onto a live install updates everything else and leaves the real keys alone.
+  Anything with nothing to keep is reported as a warning naming the field.
+
+Imports upsert by natural key - topic slug, source label - and never delete, so
+a partial bundle cannot silently destroy what it does not mention. That also
+means the bundle ports between installs: it contains no UUIDs.
+
 Restore:
 
 ```bash
